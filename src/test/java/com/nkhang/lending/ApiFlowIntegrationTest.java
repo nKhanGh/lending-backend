@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -87,5 +88,25 @@ class ApiFlowIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result", hasSize(1)))
                 .andExpect(jsonPath("$.result[0].amount").value(30.00));
+
+        String settlementJson = mockMvc.perform(post("/api/orders/{id}/settle", checkoutId)
+                        .header("Idempotency-Key", "api-flow-settle-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.instalmentsPaid").value(3))
+                .andExpect(jsonPath("$.result.amount").value(90.00))
+                .andExpect(jsonPath("$.result.outstandingAmount").value(0.00))
+                .andExpect(jsonPath("$.result.availableCredit").value(500.00))
+                .andReturn().getResponse().getContentAsString();
+
+        String retryJson = mockMvc.perform(post("/api/orders/{id}/settle", checkoutId)
+                        .header("Idempotency-Key", "api-flow-settle-001"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(retryJson).get("result"))
+                .isEqualTo(objectMapper.readTree(settlementJson).get("result"));
+
+        mockMvc.perform(get("/api/repayments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result", hasSize(4)));
     }
 }

@@ -41,6 +41,10 @@ public class IdempotencyService {
         record.complete(resourceId, null, httpStatus, clock.instant());
     }
 
+    public void complete(IdempotencyRecord record, java.util.UUID resourceId, String responseBody, int httpStatus) {
+        record.complete(resourceId, responseBody, httpStatus, clock.instant());
+    }
+
     public String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

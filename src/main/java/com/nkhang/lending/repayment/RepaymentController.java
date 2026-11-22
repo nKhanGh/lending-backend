@@ -3,6 +3,7 @@ package com.nkhang.lending.repayment;
 import com.nkhang.lending.common.api.ApiResponse;
 import com.nkhang.lending.repayment.dto.RepaymentHistoryResponse;
 import com.nkhang.lending.repayment.dto.RepaymentResponse;
+import com.nkhang.lending.repayment.dto.SettlementResponse;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -36,5 +37,14 @@ public class RepaymentController {
     @GetMapping("/repayments")
     public ApiResponse<List<RepaymentHistoryResponse>> getRepayments() {
         return ApiResponse.success(repaymentService.getHistory());
+    }
+
+    @PostMapping("/orders/{orderId}/settle")
+    public ApiResponse<SettlementResponse> settleOrder(
+            @PathVariable UUID orderId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return ApiResponse.success(
+                repaymentService.settleOrder(orderId, idempotencyKey),
+                "Order settled successfully");
     }
 }

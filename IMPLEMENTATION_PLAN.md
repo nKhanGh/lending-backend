@@ -327,6 +327,11 @@ Each completed feature is tested, committed, and pushed to `develop` before star
 | M5 | Confirm, cancel, expiry, and instalment schedule | transition/race/rounding tests | `feat: add checkout lifecycle and instalments` |
 | M6 | Repayment and history APIs | retry/concurrent payment tests | `feat: add idempotent repayments` |
 | M7 | End-to-end integration suite, OpenAPI examples, README/demo | full `mvn verify` | `test: cover paylater critical flows` |
+| M8 | Local PostgreSQL port conflict fix and early settlement of remaining instalments | Compose health, HTTP flow, retry/race tests, full `mvn verify` | `fix: use available local postgres port`; `feat: add early order settlement` |
+
+### M8 extension: early settlement
+
+`POST /api/orders/{id}/settle` requires `Idempotency-Key` and is available only for a confirmed demo-user order with unpaid instalments. In one transaction, it locks the order's instalment rows, marks every unpaid instalment paid, writes one repayment per instalment, and decreases outstanding credit by their exact sum. A completed retry returns the original settlement response, including repayment IDs and balance snapshot. A new key after full settlement returns `ORDER_ALREADY_SETTLED` (409). Single-instalment payment and settlement share row locks, so a race cannot create duplicate repayments.
 
 ## 12. Definition of done
 

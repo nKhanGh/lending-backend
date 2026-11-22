@@ -18,6 +18,10 @@ public interface InstalmentRepository extends JpaRepository<Instalment, UUID> {
     long countByOrderId(UUID orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select instalment from Instalment instalment where instalment.order.id = :orderId order by instalment.sequenceNo")
+    List<Instalment> findAllByOrderIdForUpdate(@Param("orderId") UUID orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = "order")
     @Query("select instalment from Instalment instalment where instalment.id = :id")
     Optional<Instalment> findByIdForUpdate(@Param("id") UUID id);

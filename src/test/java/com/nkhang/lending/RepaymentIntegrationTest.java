@@ -13,6 +13,7 @@ import com.nkhang.lending.repayment.RepaymentRepository;
 import com.nkhang.lending.repayment.RepaymentService;
 import com.nkhang.lending.repayment.dto.RepaymentHistoryResponse;
 import com.nkhang.lending.repayment.dto.RepaymentResponse;
+import com.nkhang.lending.repayment.dto.SettlementResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -152,6 +153,56 @@ class RepaymentIntegrationTest extends PostgresIntegrationTest {
         assertThat(history).hasSize(4);
         assertThat(history).extracting(RepaymentHistoryResponse::amount)
                 .allSatisfy(amount -> assertThat(amount).isEqualByComparingTo("30.00"));
+    }
+
+    @Test
+    void earlySettlementPaysOnlyRemainingInstalmentsAndRetryIsStable() {
+        List<Instalment> schedule = confirmedSchedule("settle-partial");
+        UUID orderId = schedule.getFirst().getOrder().getId();
+        repaymentService.pay(schedule.getFirst().getId(), "settle-first-payment");
+
+        SettlementResponse first = repaymentService.settleOrder(orderId, "settle-order-001");
+        SettlementResponse retry = repaymentService.settleOrder(orderId, "settle-order-001");
+
+        assertThat(first.instalmentsPaid()).isEqualTo(3);
+        assertThat(first.amount()).isEqualByComparingTo("90.00");
+        assertThat(first.repaymentIds()).hasSize(3);
+        assertThat(retry).isEqualTo(first);
+        assertThat(repaymentRepository.count()).isEqualTo(4);
+        assertThat(account().getOutstandingAmount()).isEqualByComparingTo("0.00");
+        assertThat(account().getAvailableCredit()).isEqualByComparingTo("500.00");
+
+        assertThatThrownBy(() -> repaymentService.settleOrder(orderId, "settle-order-new-key"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.ORDER_ALREADY_SETTLED));
+    }
+
+    @Test
+    void settlementRacingWithSinglePaymentNeverDoublePays() throws Exception {
+        List<Instalment> schedule = confirmedSchedule("settle-race");
+        UUID orderId = schedule.getFirst().getOrder().getId();
+        UUID instalmentId = schedule.getFirst().getId();
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Object> settlement = executor.submit(() -> {
+                start.await();
+                return repaymentService.settleOrder(orderId, "settle-race-key");
+            });
+            Future<Object> single = executor.submit(payAfterSignal(start, instalmentId, "settle-race-single"));
+            start.countDown();
+
+            assertThat(settlement.get()).isInstanceOf(SettlementResponse.class);
+            Object singleResult = single.get();
+            assertThat(singleResult instanceof RepaymentResponse
+                    || singleResult instanceof AppException exception
+                    && exception.getErrorCode() == ErrorCode.INSTALMENT_ALREADY_PAID).isTrue();
+        }
+
+        assertThat(repaymentRepository.count()).isEqualTo(4);
+        assertThat(account().getOutstandingAmount()).isEqualByComparingTo("0.00");
+        assertThat(account().getAvailableCredit()).isEqualByComparingTo("500.00");
     }
 
     private List<Instalment> confirmedSchedule(String keyPrefix) {

@@ -14,6 +14,7 @@ The application is a learning proof of concept. It does not process real money a
 - Confirm, cancel, and automatic 10-minute reservation expiry.
 - Four monthly instalments with exact remainder allocation.
 - Full-instalment simulated repayment and automatic credit restoration.
+- Early settlement of every remaining instalment on a confirmed order, with idempotent retries.
 - Order, instalment, and repayment history APIs.
 - Flyway-owned schema with monetary and uniqueness constraints.
 - PostgreSQL/Testcontainers tests for retries, rollback, expiry, rounding, concurrent checkout, and concurrent payment.
@@ -97,7 +98,7 @@ Default local configuration:
 | Variable | Default |
 |---|---|
 | `DB_HOST` | `localhost` |
-| `DB_PORT` | `5432` |
+| `DB_PORT` | `55432` |
 | `DB_NAME` | `lending` |
 | `DB_USERNAME` | `lending` |
 | `DB_PASSWORD` | `lending` |
@@ -161,6 +162,15 @@ The examples use `curl`. Each mutating retry-sensitive request needs a stable, c
    curl http://localhost:8080/api/repayments
    ```
 
+To settle all remaining instalments after step 4:
+
+```bash
+curl -X POST http://localhost:8080/api/orders/CHECKOUT_ID/settle \
+  -H "Idempotency-Key: demo-settle-001"
+```
+
+This pays the remaining SGD 90.00, returns the three new repayment IDs, and restores available credit to SGD 500.00. Retrying with the same key returns the same settlement result.
+
 To cancel instead of confirm:
 
 ```bash
@@ -180,9 +190,10 @@ curl -X POST http://localhost:8080/api/checkouts/CHECKOUT_ID/cancel
 | `GET` | `/api/orders/{id}` | Order, reservation, and instalment detail |
 | `GET` | `/api/orders/{id}/instalments` | Ordered instalment schedule |
 | `POST` | `/api/instalments/{id}/pay` | Pay one complete instalment |
+| `POST` | `/api/orders/{id}/settle` | Pay every remaining instalment on a confirmed order |
 | `GET` | `/api/repayments` | Repayment history |
 
-Important domain errors include `INSUFFICIENT_CREDIT`, `INVALID_CHECKOUT_STATE`, `RESERVATION_EXPIRED`, `INSTALMENT_ALREADY_PAID`, and `IDEMPOTENCY_KEY_REUSED`. The numeric `code` and readable `message` are returned in the standard response envelope.
+Important domain errors include `INSUFFICIENT_CREDIT`, `INVALID_CHECKOUT_STATE`, `RESERVATION_EXPIRED`, `INSTALMENT_ALREADY_PAID`, `ORDER_ALREADY_SETTLED`, and `IDEMPOTENCY_KEY_REUSED`. The numeric `code` and readable `message` are returned in the standard response envelope.
 
 ## Test
 
@@ -201,6 +212,7 @@ The critical suites cover:
 - two simultaneous checkouts competing for one limit;
 - confirm retry, cancellation, expiry, and exact rounding;
 - payment retry and two simultaneous payments for one instalment;
+- early settlement after a prior payment, retry, and a race with single-instalment payment;
 - complete HTTP flow from reservation through repayment history.
 
 ## Scope limitations
