@@ -14,6 +14,7 @@ import java.util.UUID;
 public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = "product")
     @Query("select order from Order order where order.id = :id")
     Optional<Order> findByIdForUpdate(@Param("id") UUID id);
 
