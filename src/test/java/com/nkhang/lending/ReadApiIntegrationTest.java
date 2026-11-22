@@ -1,10 +1,14 @@
 package com.nkhang.lending;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -15,8 +19,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class ReadApiIntegrationTest extends PostgresIntegrationTest {
 
+    private static final UUID DEMO_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     @Autowired
     MockMvc mockMvc;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void resetFinancialState() {
+        jdbcTemplate.update("delete from repayments");
+        jdbcTemplate.update("delete from instalments");
+        jdbcTemplate.update("delete from credit_reservations");
+        jdbcTemplate.update("delete from orders");
+        jdbcTemplate.update("delete from idempotency_records");
+        jdbcTemplate.update("""
+                update credit_accounts
+                set outstanding_amount = 0.00, reserved_amount = 0.00, version = 0
+                where user_id = ?
+                """, DEMO_USER_ID);
+    }
 
     @Test
     void returnsSeededProductCatalogue() throws Exception {

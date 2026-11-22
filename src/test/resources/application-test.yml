@@ -1,0 +1,4 @@
+lending:
+  scheduling:
+    enabled: false
+
