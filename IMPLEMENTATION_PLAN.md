@@ -1,339 +1,75 @@
-# Mini PayLater Backend — Implementation Plan
+# Mini Lending Credit Line — Backend Plan
 
-## 1. Goal and boundaries
+## Goal and scope
 
-Build a production-minded proof-of-concept backend for the Mini PayLater flow described in `mini-paylater-30h-plan.md`:
+Implement the backend flow in `mini-lending-credit-line-30h.md`: demo user submits financial information, a deterministic policy approves or rejects a credit line, approved users utilize that limit through drawdowns, and four monthly principal instalments restore limit as they are paid. All amounts are simulated SGD; there is no cash transfer or real credit decision.
 
-1. list products whose prices are controlled by the server;
-2. reserve credit for a checkout without allowing the account to overspend;
-3. confirm, cancel, or expire a reservation exactly once;
-4. generate four monthly instalments whose sum exactly equals the order total;
-5. pay an instalment exactly once and restore available credit;
-6. expose order and repayment history;
-7. prove the monetary invariants with unit and PostgreSQL integration tests.
+This branch replaces the earlier product checkout/credit reservation model. The former PayLater implementation remains on `develop`. Backend work is isolated on `credit-line-rebuild`; frontend is intentionally out of scope for this branch.
 
-The MVP deliberately uses one seeded demo user and excludes authentication, credit scoring, interest, late fees, partial payment, refunds, and real payment processing.
+## Code conventions and architecture
 
-## 2. Reference-project conventions
+- Java 21, Spring Boot 3.5, PostgreSQL 17, Spring Data JPA, Flyway, Maven.
+- Feature packages: `application`, `assessment`, `credit`, `drawdown`, `instalment`, `repayment`; shared `common` and `config`.
+- Controllers return typed DTOs inside `ApiResponse<T>`; business transactions live in services; entities never form the HTTP contract.
+- Bean Validation handles request shape. `AppException` and `ErrorCode` map domain failures in `GlobalExceptionHandler`.
+- Constructor injection via Lombok `@RequiredArgsConstructor` and `@FieldDefaults`, as in the previous backend and the `e-learning`/`BKJob` references.
+- One seeded demo user. No authentication, scoring model, interest, fee, partial repayment, early full settlement or real payment integration.
 
-The implementation follows the useful conventions found in `workspace/e-learning` and `workspace/BKJob`:
+## Business rules
 
-- Spring MVC controllers delegate business work to services.
-- DTOs isolate the HTTP contract from JPA entities.
-- Responses use a shared `ApiResponse<T>` envelope.
-- Bean Validation rejects malformed input at the boundary.
-- Domain failures use `AppException` + `ErrorCode` and one `GlobalExceptionHandler`.
-- Constructor injection is generated with Lombok `@RequiredArgsConstructor` and fields use `@FieldDefaults`.
-- Repository interfaces remain small; transactions live in the service layer.
-- Schedulers are thin and delegate state transitions to a transactional service.
+### Assessment policy `DEMO_V1`
 
-For the lending domain, the code is grouped by feature (`catalog`, `credit`, `checkout`, `instalment`, `repayment`) rather than one global controller/service/entity hierarchy. This keeps each financial workflow and its transaction boundary visible.
+`surplus = monthlyNetIncome - monthlyLivingExpenses - monthlyDebtPayments`.
 
-## 3. Technology decisions
+| Surplus (SGD) | Decision | Limit | Reason |
+|---:|---|---:|---|
+| `< 400` | REJECTED | 0 | `INSUFFICIENT_SURPLUS` |
+| `400` to `< 800` | APPROVED | 500 | `APPROVED_TIER_500` |
+| `800` to `< 1500` | APPROVED | 1000 | `APPROVED_TIER_1000` |
+| `>= 1500` | APPROVED | 2000 | `APPROVED_TIER_2000` |
 
-| Area | Choice | Reason |
+Persist input amounts, computed surplus, reason, policy version and assessed time. An approved application creates exactly one `ACTIVE` account in the same transaction; the user row is locked to serialize concurrent submissions. A rejection can be followed by another assessment. After approval, further submissions return 409.
+
+### Credit line and drawdown
+
+`availableLimit = totalLimit - usedLimit`; `usedLimit` is outstanding principal. An account row lock serializes drawdown and repayment changes. Drawdown requires `0.04 <= amount <= availableLimit`, two decimal places, and an active account. SGD 0.04 is the smallest amount divisible into four **positive** cent-denominated instalments. The drawdown, account update, schedule and idempotency result commit together.
+
+### Schedule and repayment
+
+Four instalments are due at drawdown date plus 1, 2, 3 and 4 calendar months. The first three equal `amount / 4` rounded down to cents; the fourth receives the remainder. Each repayment must target the earliest unpaid instalment, pays its full amount, reduces both drawdown outstanding principal and account used limit, and inserts one immutable `SUCCESS` transaction. The last repayment marks the drawdown `PAID_OFF`.
+
+### Idempotency and concurrency
+
+`CREATE_DRAWDOWN` and `REPAY_INSTALMENT` use `Idempotency-Key`. A PostgreSQL transaction-scoped advisory lock protects first use of an operation/key pair. The database enforces `UNIQUE(operation, idempotency_key)` and one repayment per instalment. Same key + same payload replays the original JSON response; same key + different payload returns 409. Balance-changing transactions lock in account → drawdown → instalment order. Account `CHECK` constraints prevent negative or over-limit used balance if application logic regresses.
+
+## Database and Flyway
+
+- `V1__create_credit_line_schema.sql`: six core tables (`users`, `credit_applications`, `credit_accounts`, `credit_drawdowns`, `instalments`, `repayment_transactions`) plus `idempotency_records`; foreign keys, unique keys, money/state checks and query indexes.
+- `V2__seed_demo_user.sql`: stable demo user UUID `00000000-0000-0000-0000-000000000001`. No account is pre-created; application approval creates it.
+- Hibernate `ddl-auto: validate` checks mappings at startup but does not create or alter tables.
+- Compose uses a separate `lending_credit_line` database, port `55433` and volume from the PayLater branch. This prevents an older Flyway history from rejecting the new `V1` checksum and preserves the earlier demo data.
+- After a migration is applied to a shared or persisted database, add a new `V3`, `V4`, etc. rather than editing an applied migration.
+
+## REST contract
+
+| Method | Endpoint | Result |
 |---|---|---|
-| Runtime | Java 21 | LTS runtime, records and modern language support |
-| Framework | Spring Boot 3.5.x | Aligns with the newer reference project |
-| Persistence | Spring Data JPA + PostgreSQL | Transactions, row locks, numeric constraints |
-| Migrations | Flyway | Repeatable, reviewable schema evolution |
-| Money | `BigDecimal`, scale 2, `RoundingMode.DOWN` for first 3 instalments | Never use binary floating point for money |
-| IDs | UUID generated by the application/JPA | Non-sequential public identifiers |
-| API docs | springdoc OpenAPI | Interactive local API documentation |
-| Tests | JUnit 5, Mockito, Spring Boot Test, Testcontainers PostgreSQL | Unit, integration, and real locking behavior |
-| Local stack | Docker Compose | One-command PostgreSQL startup |
-
-## 4. Package layout
-
-```text
-src/main/java/com/nkhang/lending/
-  LendingBackendApplication.java
-  catalog/
-    Product.java, ProductRepository.java, ProductService.java, ProductController.java
-    dto/ProductResponse.java
-  credit/
-    CreditAccount.java, CreditAccountRepository.java, CreditService.java, CreditController.java
-    dto/CreditAccountResponse.java
-  checkout/
-    Order.java, CreditReservation.java
-    OrderStatus.java, ReservationStatus.java
-    OrderRepository.java, CreditReservationRepository.java
-    CheckoutService.java, CheckoutController.java, ReservationExpiryScheduler.java
-    dto/CheckoutRequest.java, CheckoutResponse.java, OrderResponse.java
-  instalment/
-    Instalment.java, InstalmentStatus.java, InstalmentRepository.java
-    InstalmentScheduleFactory.java, InstalmentController.java
-    dto/InstalmentResponse.java
-  repayment/
-    Repayment.java, RepaymentRepository.java, RepaymentService.java, RepaymentController.java
-    dto/RepaymentResponse.java
-  common/
-    api/ApiResponse.java
-    exception/AppException.java, ErrorCode.java, ErrorResponse.java, GlobalExceptionHandler.java
-    idempotency/IdempotencyRecord.java, IdempotencyRepository.java, IdempotencyService.java
-    money/MoneyUtils.java
-  config/
-    ClockConfig.java, OpenApiConfig.java, SchedulingConfig.java
-```
-
-Tests mirror the production packages. PostgreSQL integration tests share a Testcontainers base class.
-
-## 5. Core model and invariants
-
-### 5.1 Credit account
-
-```text
-available = totalLimit - outstandingAmount - reservedAmount
-```
-
-The following invariants must hold after every committed transaction:
-
-- `totalLimit > 0`
-- `outstandingAmount >= 0`
-- `reservedAmount >= 0`
-- `outstandingAmount + reservedAmount <= totalLimit`
-- all amounts use currency `SGD` and scale 2
-
-The demo account is identified by a stable `user_id` constant and starts with SGD 500.00.
-
-### 5.2 State machines
-
-Order:
-
-```text
-RESERVED -> CONFIRMED
-RESERVED -> CANCELLED
-RESERVED -> EXPIRED
-```
-
-Reservation:
-
-```text
-ACTIVE -> CAPTURED
-ACTIVE -> RELEASED
-ACTIVE -> EXPIRED
-```
-
-Instalment:
-
-```text
-UNPAID -> PAID
-```
-
-No other transition is allowed. A row lock and a state check ensure that only one of confirm, cancel, or expiry wins.
-
-### 5.3 Instalment allocation
-
-For total `T`:
-
-1. calculate `base = T / 4`, scale 2, rounding down;
-2. instalments 1–3 equal `base`;
-3. instalment 4 equals `T - (base * 3)`.
-
-For SGD 100.01, the result is 25.00, 25.00, 25.00, 25.01. Due dates are confirmation date plus 1, 2, 3, and 4 months.
-
-## 6. Database design
-
-Flyway `V1__create_paylater_schema.sql` creates:
-
-### `products`
-
-- `id UUID PRIMARY KEY`
-- `name VARCHAR(120) NOT NULL`
-- `description VARCHAR(500)`
-- `price NUMERIC(18,2) NOT NULL CHECK (price > 0)`
-- `currency CHAR(3) NOT NULL CHECK (currency = 'SGD')`
-- `active BOOLEAN NOT NULL`
-
-### `credit_accounts`
-
-- `id UUID PRIMARY KEY`
-- `user_id UUID NOT NULL UNIQUE`
-- `total_limit`, `outstanding_amount`, `reserved_amount NUMERIC(18,2)`
-- `currency CHAR(3) NOT NULL`
-- `version BIGINT NOT NULL`
-- checks for the credit invariants
-
-### `orders`
-
-- `id UUID PRIMARY KEY`
-- `user_id UUID NOT NULL`
-- `product_id UUID NOT NULL REFERENCES products(id)`
-- `quantity INTEGER NOT NULL CHECK (quantity > 0)`
-- `unit_price`, `total_amount NUMERIC(18,2) NOT NULL`
-- `currency CHAR(3) NOT NULL`
-- `status VARCHAR(20) NOT NULL`
-- `created_at`, `confirmed_at`, `cancelled_at`, `expired_at TIMESTAMPTZ`
-
-### `credit_reservations`
-
-- `id UUID PRIMARY KEY`
-- `order_id UUID NOT NULL UNIQUE REFERENCES orders(id)`
-- `amount NUMERIC(18,2) NOT NULL CHECK (amount > 0)`
-- `status VARCHAR(20) NOT NULL`
-- `expires_at TIMESTAMPTZ NOT NULL`
-- `created_at`, `updated_at TIMESTAMPTZ NOT NULL`
-
-### `instalments`
-
-- `id UUID PRIMARY KEY`
-- `order_id UUID NOT NULL REFERENCES orders(id)`
-- `sequence_no SMALLINT NOT NULL CHECK (sequence_no BETWEEN 1 AND 4)`
-- `amount NUMERIC(18,2) NOT NULL CHECK (amount > 0)`
-- `due_date DATE NOT NULL`
-- `status VARCHAR(20) NOT NULL`
-- `paid_at TIMESTAMPTZ`
-- `UNIQUE(order_id, sequence_no)`
-
-### `repayments`
-
-- `id UUID PRIMARY KEY`
-- `instalment_id UUID NOT NULL UNIQUE REFERENCES instalments(id)`
-- `amount NUMERIC(18,2) NOT NULL CHECK (amount > 0)`
-- `created_at TIMESTAMPTZ NOT NULL`
-
-### `idempotency_records`
-
-- `id UUID PRIMARY KEY`
-- `operation VARCHAR(40) NOT NULL`
-- `idempotency_key VARCHAR(120) NOT NULL`
-- `request_fingerprint CHAR(64) NOT NULL`
-- `resource_id UUID`
-- `response_body TEXT`
-- `http_status INTEGER`
-- `status VARCHAR(20) NOT NULL` (`PROCESSING`, `COMPLETED`)
-- `created_at`, `updated_at TIMESTAMPTZ NOT NULL`
-- `UNIQUE(operation, idempotency_key)`
-
-`V2__seed_demo_data.sql` inserts the stable demo account and 8 products, including a SGD 120.00 demo item and a SGD 100.01 rounding-test item.
-
-## 7. Transaction and concurrency strategy
-
-### Reserve checkout
-
-One transaction:
-
-1. validate idempotency key and fingerprint (`productId + quantity`);
-2. load the active product and calculate price server-side;
-3. lock the demo credit account (`SELECT ... FOR UPDATE`);
-4. reject if available credit is smaller than the total;
-5. increment `reservedAmount`;
-6. insert order and active reservation with `expiresAt = now + 10 minutes`;
-7. persist the idempotency result.
-
-The account row lock serializes competing reservations, so two concurrent requests cannot observe the same available balance.
-
-### Confirm checkout
-
-One transaction locks the order, reservation, and account; checks expiry/state; moves the amount from reserved to outstanding; marks order confirmed and reservation captured; creates four instalments; completes the idempotency record. A retry returns the existing confirmed result and never creates a second schedule.
-
-### Cancel/expire checkout
-
-One transaction locks the order and reservation. Only an `ACTIVE` reservation on a `RESERVED` order can release credit. The scheduler selects expired active reservations in bounded batches and delegates each transition to the transactional service. Confirm and expiry racing for one checkout serialize on the same rows.
-
-### Repay instalment
-
-One transaction locks the instalment and credit account, verifies that the order is confirmed and the instalment is unpaid, marks it paid, inserts one repayment, subtracts its amount from outstanding, and completes the idempotency result. Unique constraints provide a final defence against duplicate payment rows.
-
-### Idempotency behavior
-
-- same operation + key + same fingerprint + completed: return the stored/current resource result;
-- same operation + key + different fingerprint: `IDEMPOTENCY_KEY_REUSED` (409);
-- same operation + key currently processing: `REQUEST_IN_PROGRESS` (409);
-- missing/blank/overlong key: validation error (400).
-
-Operations are namespaced (`CREATE_CHECKOUT`, `CONFIRM_CHECKOUT`, `PAY_INSTALMENT`) so a client may safely reuse a key for a different operation.
-
-## 8. HTTP API contract
-
-All endpoints return `ApiResponse<T>` with `code`, `message`, `result`, and `timestamp`. Monetary JSON values are decimal numbers with two fractional digits. All timestamps are ISO-8601 UTC.
-
-| Method | Endpoint | Idempotency | Success |
-|---|---|---|---|
-| GET | `/api/products` | no | product list |
-| GET | `/api/credit-account` | no | demo credit dashboard |
-| POST | `/api/checkouts` | required | 201 reserved checkout |
-| POST | `/api/checkouts/{id}/confirm` | required | confirmed order + 4 instalments |
-| POST | `/api/checkouts/{id}/cancel` | no; state transition is naturally idempotent | cancelled order |
-| GET | `/api/orders` | no | newest-first order list |
-| GET | `/api/orders/{id}` | no | order, reservation, and instalments |
-| GET | `/api/orders/{id}/instalments` | no | ordered schedule |
-| POST | `/api/instalments/{id}/pay` | required | paid instalment + new credit totals |
-| GET | `/api/repayments` | no | newest-first repayment history |
-
-Required error codes and statuses:
-
-| Code | HTTP status |
-|---|---:|
-| `INVALID_REQUEST` | 400 |
-| `RESOURCE_NOT_FOUND` | 404 |
-| `INSUFFICIENT_CREDIT` | 422 |
-| `INVALID_CHECKOUT_STATE` | 409 |
-| `RESERVATION_EXPIRED` | 409 |
-| `INSTALMENT_ALREADY_PAID` | 409 |
-| `IDEMPOTENCY_KEY_REUSED` | 409 |
-| `REQUEST_IN_PROGRESS` | 409 |
-| `INTERNAL_SERVER_ERROR` | 500 |
-
-## 9. Configuration and operations
-
-- `application.yml`: common JPA, Flyway, Jackson, scheduler, and OpenAPI settings.
-- `application-local.yml`: localhost PostgreSQL defaults overridable by environment variables.
-- `application-test.yml`: Testcontainers-managed datasource and deterministic scheduling disabled.
-- No secret is committed; `.env.example` documents supported variables.
-- `/actuator/health` provides a basic health check.
-- Swagger UI is available at `/swagger-ui.html`.
-- Docker Compose exposes only PostgreSQL for local development.
-
-## 10. Test plan
-
-### Unit tests
-
-- `MoneyUtilsTest`: scale validation and calculations.
-- `InstalmentScheduleFactoryTest`: normal totals, SGD 100.01 remainder, due dates, total preservation.
-- service tests: state validation and error mapping where useful.
-
-### PostgreSQL integration tests
-
-- starts with SGD 500.00 available;
-- reserve SGD 120.00 -> reserved 120.00, available 380.00;
-- confirm -> reserved 0.00, outstanding 120.00, available unchanged;
-- four instalments sum to order total;
-- first payment -> outstanding 90.00, available 410.00;
-- all payments -> outstanding 0.00, available 500.00;
-- insufficient credit rolls back without order/reservation rows;
-- same checkout key/same body creates exactly one order;
-- same key/different body returns conflict;
-- cancel releases once and cannot be confirmed;
-- expired checkout cannot be confirmed;
-- concurrent reservations cannot exceed SGD 500.00;
-- concurrent confirm/expire produces one valid terminal state;
-- repeated/concurrent confirm creates exactly four instalments;
-- repeated/concurrent payment creates one repayment and subtracts once.
-
-Test setup resets the database between cases and uses a fixed `Clock` where time affects behavior.
-
-## 11. Delivery sequence and Git checkpoints
-
-Each completed feature is tested, committed, and pushed to `develop` before starting the next feature.
-
-| Milestone | Deliverable | Verification | Commit intent |
-|---|---|---|---|
-| M0 | Detailed implementation plan | plan review | `docs: add backend implementation plan` |
-| M1 | Spring Boot bootstrap, profiles, Compose, shared API/errors | context + error tests | `feat: bootstrap lending backend` |
-| M2 | Flyway schema, entities, repositories, seed data | migration/context integration test | `feat: add paylater data model` |
-| M3 | Catalogue and credit dashboard APIs | controller/service tests | `feat: add catalogue and credit dashboard` |
-| M4 | Credit reservation + checkout idempotency | reserve/idempotency/concurrency tests | `feat: add concurrency-safe checkout reservation` |
-| M5 | Confirm, cancel, expiry, and instalment schedule | transition/race/rounding tests | `feat: add checkout lifecycle and instalments` |
-| M6 | Repayment and history APIs | retry/concurrent payment tests | `feat: add idempotent repayments` |
-| M7 | End-to-end integration suite, OpenAPI examples, README/demo | full `mvn verify` | `test: cover paylater critical flows` |
-
-## 12. Definition of done
-
-- A new developer can clone the repository, start PostgreSQL, run the app, and execute the demo from the README.
-- All endpoints in section 8 are implemented and documented.
-- Flyway owns all schema and seed changes; Hibernate schema auto-generation is disabled.
-- The credit invariant is enforced both by application transactions and database checks.
-- Checkout and payment retries do not duplicate financial effects.
-- PostgreSQL tests demonstrate that concurrent requests cannot overspend or double-pay.
-- `mvn verify` passes and the completed milestones are present on remote branch `develop`.
+| POST | `/api/credit-applications` | Assess and optionally create account (201) |
+| GET | `/api/credit-applications/latest` | Latest decision |
+| GET | `/api/credit-account` | Total, used and available limit |
+| POST | `/api/credit-drawdowns` | Utilize amount and create 4 instalments (201; key required) |
+| GET | `/api/credit-drawdowns` | List drawdowns |
+| GET | `/api/credit-drawdowns/{id}` | Drawdown and instalment schedule |
+| POST | `/api/instalments/{id}/repay` | Pay next full instalment (key required) |
+| GET | `/api/credit-drawdowns/{id}/repayments` | Repayment history |
+
+All successful responses use `ApiResponse<T>`. Validation errors return 400, missing resources 404, and conflicting states/limit/idempotency return 409.
+
+## Verification and delivery
+
+1. Unit test the four assessment boundaries and schedule rounding/dates.
+2. PostgreSQL/Testcontainers integration test approval, account creation, drawdown 800, limit 1000, full four-payment lifecycle, idempotent retries and out-of-order repayment.
+3. Race two SGD 700 drawdowns on a SGD 1000 line; exactly one succeeds.
+4. MockMvc test HTTP envelope, status codes and end-to-end flow.
+5. `mvn clean verify`; start Compose and run the README demo against the local database.
+6. Commit and push completed backend work to `credit-line-rebuild`, keeping `develop` unchanged.

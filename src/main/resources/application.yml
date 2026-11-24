@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: lending-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:55433}/${DB_NAME:lending_credit_line}
+    username: ${DB_USERNAME:lending}
+    password: ${DB_PASSWORD:lending}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  jackson:
+    time-zone: UTC
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+lending:
+  demo-user-id: 00000000-0000-0000-0000-000000000001

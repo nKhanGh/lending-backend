@@ -1,0 +1,22 @@
+name: mini-lending-credit-line
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mini-lending-creditline-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-lending_credit_line}
+      POSTGRES_USER: ${DB_USERNAME:-lending}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-lending}
+    ports:
+      - "${DB_PORT:-55433}:5432"
+    volumes:
+      - creditline-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-lending} -d ${DB_NAME:-lending_credit_line}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  creditline-postgres-data:
