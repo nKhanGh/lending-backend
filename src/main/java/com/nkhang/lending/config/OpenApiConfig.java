@@ -11,8 +11,8 @@ public class OpenApiConfig {
     @Bean
     OpenAPI lendingOpenApi() {
         return new OpenAPI().info(new Info()
-                .title("Mini PayLater API")
-                .description("A concurrency-safe PayLater simulator")
+                .title("Mini Lending Credit Line API")
+                .description("One-user simulated credit assessment, drawdown and repayment")
                 .version("v1"));
     }
 }

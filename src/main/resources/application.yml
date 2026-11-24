@@ -1,6 +1,20 @@
 spring:
   application:
     name: lending-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:55432}/${DB_NAME:lending}
+    username: ${DB_USERNAME:lending}
+    password: ${DB_PASSWORD:lending}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
   jackson:
     time-zone: UTC
     default-property-inclusion: non_null
@@ -19,7 +33,5 @@ springdoc:
     path: /swagger-ui.html
 
 lending:
-  reservation:
-    expiry: 10m
-    cleanup-delay: 30s
+  demo-user-id: 00000000-0000-0000-0000-000000000001
 

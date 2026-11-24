@@ -2,11 +2,11 @@ package com.nkhang.lending.common.exception;
 
 import com.nkhang.lending.common.api.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -31,7 +31,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(errorResponse(ErrorCode.INVALID_REQUEST, message));
     }
 
-    @ExceptionHandler({MissingRequestHeaderException.class, HttpMessageNotReadableException.class})
+    @ExceptionHandler({MissingRequestHeaderException.class, HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class})
     ResponseEntity<ApiResponse<Void>> handleMalformedRequest(Exception exception) {
         return ResponseEntity.badRequest()
                 .body(errorResponse(ErrorCode.INVALID_REQUEST, exception.getMessage()));
