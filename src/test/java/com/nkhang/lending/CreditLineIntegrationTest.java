@@ -10,6 +10,7 @@ import com.nkhang.lending.drawdown.CreditDrawdownService;
 import com.nkhang.lending.drawdown.dto.DrawdownDetailResponse;
 import com.nkhang.lending.drawdown.dto.DrawdownRequest;
 import com.nkhang.lending.instalment.OverdueService;
+import com.nkhang.lending.ledger.ReconciliationService;
 import com.nkhang.lending.repayment.PaymentAttemptStatus;
 import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.RepaymentService;
@@ -41,6 +42,7 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
     @Autowired CreditDrawdownService drawdownService;
     @Autowired RepaymentService repaymentService;
     @Autowired OverdueService overdueService;
+    @Autowired ReconciliationService reconciliationService;
 
     @Test
     void rejectedApplicationCanBeReassessedButApprovedAccountCannotBeDuplicated() {
@@ -191,6 +193,31 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
         repaymentService.settle(remainder.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-late-remainder");
         assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("PAID");
         assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().daysOverdue()).isZero();
+    }
+
+    @Test
+    void ledgerReconcilesWithAccountAndDrawdownAfterEachSettlement() {
+        approve();
+        DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("400.00")), "ledger-draw");
+        assertThat(reconciliationService.accounts()).singleElement().satisfies(row -> {
+            assertThat(row.balanced()).isTrue();
+            assertThat(row.ledgerOutstanding()).isEqualByComparingTo("400.00");
+        });
+        PaymentAttemptResponse attempt = repaymentService.request(drawdown.instalments().getFirst().id(),
+                "ledger-pay", money("30.00"));
+        repaymentService.settle(attempt.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-ledger");
+        assertThat(reconciliationService.accounts()).singleElement().satisfies(row -> {
+            assertThat(row.balanced()).isTrue();
+            assertThat(row.usedLimit()).isEqualByComparingTo("370.00");
+            assertThat(row.ledgerOutstanding()).isEqualByComparingTo("370.00");
+        });
+        assertThat(jdbcTemplate.queryForObject("select count(*) from ledger_journals", Integer.class)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from ledger_entries", Integer.class)).isEqualTo(4);
+        assertThat(reconciliationService.accounts()).singleElement()
+                .satisfies(row -> assertThat(row.unbalancedJournals()).isZero());
+        jdbcTemplate.update("update credit_accounts set used_limit = 0");
+        assertThat(reconciliationService.accounts()).singleElement()
+                .satisfies(row -> assertThat(row.balanced()).isFalse());
     }
 
     @Test

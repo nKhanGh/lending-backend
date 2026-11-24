@@ -73,6 +73,13 @@ due date as `OVERDUE`. Drawdown detail also reports `daysOverdue` and
 the remaining amount, including after a partial payment. A fully settled
 instalment changes to `PAID`.
 
+Every drawdown and successful repayment writes a pair of debit/credit ledger
+entries in the same PostgreSQL transaction as the balance update. V7 backfills
+journals for transactions that existed before this feature. An admin can call
+`GET /api/admin/reconciliation` to compare ledger receivables,
+drawdown principal and account used limit; `balanced=false` flags a mismatch.
+The ledger is a simulator, with no external accounting integration.
+
 ## API
 
 | Method | Path | Purpose |
@@ -89,6 +96,7 @@ instalment changes to `PAID`.
 | GET | `/api/credit-drawdowns/{id}/repayments` | Successful repayments |
 | POST | `/api/admin/payment-attempts/{id}/settle` | Simulate provider outcome |
 | GET | `/api/admin/users` | Admin-only user listing |
+| GET | `/api/admin/reconciliation` | Admin-only balance reconciliation |
 
 All responses use `ApiResponse<T>`. Swagger UI is at
 [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html).
