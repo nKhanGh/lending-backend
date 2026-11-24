@@ -4,6 +4,7 @@ import com.nkhang.lending.assessment.CreditAssessmentPolicy;
 import com.nkhang.lending.assessment.CreditDecision;
 import com.nkhang.lending.assessment.CreditProfile;
 import com.nkhang.lending.assessment.CreditProfileRepository;
+import com.nkhang.lending.audit.AuditService;
 import com.nkhang.lending.assessment.DecisionStatus;
 import com.nkhang.lending.application.dto.CreditApplicationRequest;
 import com.nkhang.lending.application.dto.CreditApplicationResponse;
@@ -30,6 +31,7 @@ public class CreditApplicationService {
     final CreditAccountRepository accountRepository;
     final CreditAssessmentPolicy policy;
     final CreditProfileRepository profiles;
+    final AuditService audit;
     final Clock clock;
 
     final CurrentUser currentUser;
@@ -52,6 +54,8 @@ public class CreditApplicationService {
         if (decision.status() == DecisionStatus.APPROVED) {
             accountRepository.save(CreditAccount.active(user, decision.approvedLimit()));
         }
+        audit.record(currentUser.id(), currentUser.id(), "CREDIT_ASSESSED", "APPLICATION",
+                application.getId(), decision.status() + ":" + decision.reasonCode());
         return CreditApplicationResponse.from(application);
     }
 

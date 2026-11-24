@@ -88,6 +88,12 @@ journals for transactions that existed before this feature. An admin can call
 drawdown principal and account used limit; `balanced=false` flags a mismatch.
 The ledger is a simulator, with no external accounting integration.
 
+V9 adds an audit trail for registration/login, credit decisions, drawdowns,
+payment requests and outcomes, profile updates and overdue batches. Audit
+records are written in the same transaction as the business action.
+An admin can read up to 100 recent records with
+`GET /api/admin/audit-events?userId={id}&limit=50`.
+
 ## API
 
 | Method | Path | Purpose |
@@ -106,6 +112,7 @@ The ledger is a simulator, with no external accounting integration.
 | GET | `/api/admin/users` | Admin-only user listing |
 | GET | `/api/admin/reconciliation` | Admin-only balance reconciliation |
 | PUT | `/api/admin/credit-profiles/{userId}` | Admin-managed simulated credit evidence |
+| GET | `/api/admin/audit-events` | Admin-only audit trail |
 
 All responses use `ApiResponse<T>`. Swagger UI is at
 [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html).

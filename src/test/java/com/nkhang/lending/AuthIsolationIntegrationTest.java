@@ -47,6 +47,8 @@ class AuthIsolationIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.result.email").value(firstEmail));
         mockMvc.perform(get("/api/admin/users").header("Authorization", bearer(first)))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/audit-events").header("Authorization", bearer(first)))
+                .andExpect(status().isForbidden());
 
         mockMvc.perform(post("/api/credit-applications").header("Authorization", bearer(first))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -97,6 +99,7 @@ class AuthIsolationIntegrationTest extends PostgresIntegrationTest {
     @WithMockUser(username = "00000000-0000-0000-0000-000000000001", roles = "ADMIN")
     void adminRouteRequiresAdminRole() throws Exception {
         mockMvc.perform(get("/api/admin/users")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/admin/audit-events")).andExpect(status().isOk());
     }
 
     @Test

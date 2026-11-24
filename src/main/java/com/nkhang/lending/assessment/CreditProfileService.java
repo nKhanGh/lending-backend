@@ -1,6 +1,8 @@
 package com.nkhang.lending.assessment;
 
 import com.nkhang.lending.application.LendingUserRepository;
+import com.nkhang.lending.audit.AuditService;
+import com.nkhang.lending.config.CurrentUser;
 import com.nkhang.lending.assessment.dto.CreditProfileRequest;
 import com.nkhang.lending.assessment.dto.CreditProfileResponse;
 import com.nkhang.lending.common.exception.AppException;
@@ -18,6 +20,8 @@ public class CreditProfileService {
     private final CreditProfileRepository profiles;
     private final LendingUserRepository users;
     private final Clock clock;
+    private final AuditService audit;
+    private final CurrentUser currentUser;
 
     @Transactional
     public CreditProfileResponse upsert(UUID userId, CreditProfileRequest request) {
@@ -25,6 +29,9 @@ public class CreditProfileService {
         CreditProfile profile = profiles.findById(userId).orElseGet(() ->
                 CreditProfile.of(userId, request.verifiedMonthlyIncome(), request.latePayments12m(), clock.instant()));
         profile.update(request.verifiedMonthlyIncome(), request.latePayments12m(), clock.instant());
-        return CreditProfileResponse.from(profiles.save(profile));
+        CreditProfile saved = profiles.save(profile);
+        audit.record(currentUser.id(), userId, "CREDIT_PROFILE_UPDATED", "CREDIT_PROFILE",
+                userId, "latePayments12m=" + request.latePayments12m());
+        return CreditProfileResponse.from(saved);
     }
 }

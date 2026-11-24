@@ -6,6 +6,7 @@ import com.nkhang.lending.auth.dto.AuthResponse;
 import com.nkhang.lending.auth.dto.LoginRequest;
 import com.nkhang.lending.auth.dto.RegisterRequest;
 import com.nkhang.lending.auth.dto.UserResponse;
+import com.nkhang.lending.audit.AuditService;
 import com.nkhang.lending.common.exception.AppException;
 import com.nkhang.lending.common.exception.ErrorCode;
 import com.nkhang.lending.config.CurrentUser;
@@ -32,8 +33,10 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtEncoder jwtEncoder;
     private final CurrentUser currentUser;
+    private final AuditService audit;
     private final Clock clock;
 
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
         if (userRepository.findByEmailIgnoreCase(email).isPresent()) {
@@ -46,16 +49,18 @@ public class AuthService {
         } catch (DataIntegrityViolationException exception) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
+        audit.record(user.getId(), user.getId(), "USER_REGISTERED", "USER", user.getId(), null);
         return token(user);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         LendingUser user = userRepository.findByEmailIgnoreCase(request.email().trim())
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_CREDENTIALS));
         if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new AppException(ErrorCode.INVALID_CREDENTIALS);
         }
+        audit.record(user.getId(), user.getId(), "USER_LOGIN", "USER", user.getId(), null);
         return token(user);
     }
 
