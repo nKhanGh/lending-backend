@@ -1,0 +1,145 @@
+package com.nkhang.lending;
+
+import com.nkhang.lending.application.dto.CreditApplicationRequest;
+import com.nkhang.lending.application.dto.CreditApplicationResponse;
+import com.nkhang.lending.application.CreditApplicationService;
+import com.nkhang.lending.common.exception.AppException;
+import com.nkhang.lending.common.exception.ErrorCode;
+import com.nkhang.lending.credit.CreditService;
+import com.nkhang.lending.drawdown.CreditDrawdownService;
+import com.nkhang.lending.drawdown.dto.DrawdownDetailResponse;
+import com.nkhang.lending.drawdown.dto.DrawdownRequest;
+import com.nkhang.lending.repayment.dto.RepaymentResponse;
+import com.nkhang.lending.repayment.RepaymentService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import java.math.BigDecimal;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@SpringBootTest
+class CreditLineIntegrationTest extends PostgresIntegrationTest {
+    @Autowired CreditApplicationService applicationService;
+    @Autowired CreditService creditService;
+    @Autowired CreditDrawdownService drawdownService;
+    @Autowired RepaymentService repaymentService;
+
+    @Test
+    void rejectedApplicationCanBeReassessedButApprovedAccountCannotBeDuplicated() {
+        CreditApplicationResponse rejected = applicationService.submit(
+                new CreditApplicationRequest(money("1000"), money("400"), money("300.01"), null));
+        assertThat(rejected.decision()).isEqualTo("REJECTED");
+        assertThat(rejected.monthlySurplus()).isEqualByComparingTo("299.99");
+        assertThat(applicationService.latest().applicationId()).isEqualTo(rejected.applicationId());
+
+        CreditApplicationResponse approved = approve();
+        assertThat(approved.decision()).isEqualTo("APPROVED");
+        assertThat(approved.reasonCode()).isEqualTo("APPROVED_TIER_1000");
+        assertThat(approved.policyVersion()).isEqualTo("DEMO_V1");
+        assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("1000.00");
+        assertThatThrownBy(this::approve).isInstanceOfSatisfying(AppException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.APPLICATION_ALREADY_APPROVED));
+    }
+
+    @Test
+    void drawdownAndRepaymentsRestoreLimitAndCloseTheLoan() {
+        approve();
+        DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("800.00")), "draw-800");
+        assertThat(drawdown.instalments()).hasSize(4);
+        assertThat(drawdown.instalments()).extracting(item -> item.amount())
+                .allSatisfy(amount -> assertThat(amount).isEqualByComparingTo("200.00"));
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("800.00");
+        assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("200.00");
+
+        DrawdownDetailResponse retry = drawdownService.create(new DrawdownRequest(money("800.0")), "draw-800");
+        assertThat(retry.drawdownId()).isEqualTo(drawdown.drawdownId());
+        assertThat(drawdownService.list()).hasSize(1);
+        assertThatThrownBy(() -> drawdownService.create(new DrawdownRequest(money("700.00")), "draw-800"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_KEY_REUSED));
+
+        UUID firstId = drawdown.instalments().getFirst().id();
+        RepaymentResponse first = repaymentService.repay(firstId, "repay-first");
+        RepaymentResponse firstRetry = repaymentService.repay(firstId, "repay-first");
+        assertThat(firstRetry).isEqualTo(first);
+        assertThatThrownBy(() -> repaymentService.repay(firstId, "repay-first-new-key"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INSTALMENT_ALREADY_PAID));
+        assertThat(first.remainingDrawdownPrincipal()).isEqualByComparingTo("600.00");
+        assertThat(first.availableLimit()).isEqualByComparingTo("400.00");
+
+        for (int index = 1; index < 4; index++) {
+            repaymentService.repay(drawdown.instalments().get(index).id(), "repay-" + index);
+        }
+        assertThat(drawdownService.detail(drawdown.drawdownId()).status()).isEqualTo("PAID_OFF");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).outstandingPrincipal()).isEqualByComparingTo("0.00");
+        assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("1000.00");
+        assertThat(repaymentService.history(drawdown.drawdownId())).hasSize(4);
+        assertThat(jdbcTemplate.queryForObject("select sum(amount) from repayment_transactions", BigDecimal.class))
+                .isEqualByComparingTo("800.00");
+    }
+
+    @Test
+    void invalidDrawdownAndOutOfOrderRepaymentDoNotChangeBalances() {
+        approve();
+        assertThatThrownBy(() -> drawdownService.create(new DrawdownRequest(money("1200.00")), "too-much"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INSUFFICIENT_LIMIT));
+        assertThat(drawdownService.list()).isEmpty();
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("0.00");
+
+        DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("100.01")), "rounding");
+        assertThat(drawdown.instalments()).extracting(item -> item.amount())
+                .containsExactly(money("25.00"), money("25.00"), money("25.00"), money("25.01"));
+        assertThatThrownBy(() -> repaymentService.repay(drawdown.instalments().get(1).id(), "wrong-order"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INSTALMENT_OUT_OF_ORDER));
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("100.01");
+        assertThat(repaymentService.history(drawdown.drawdownId())).isEmpty();
+    }
+
+    @Test
+    void concurrentDrawdownsCannotExceedLimit() throws Exception {
+        approve();
+        CountDownLatch start = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Object> first = executor.submit(() -> tryDraw(start, "race-one"));
+            Future<Object> second = executor.submit(() -> tryDraw(start, "race-two"));
+            start.countDown();
+            Object firstResult = first.get();
+            Object secondResult = second.get();
+            assertThat((firstResult instanceof DrawdownDetailResponse ? 1 : 0)
+                    + (secondResult instanceof DrawdownDetailResponse ? 1 : 0)).isEqualTo(1);
+            assertThat(firstResult instanceof AppException || secondResult instanceof AppException).isTrue();
+        }
+        assertThat(drawdownService.list()).hasSize(1);
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("700.00");
+        assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("300.00");
+    }
+
+    private Object tryDraw(CountDownLatch start, String key) throws InterruptedException {
+        start.await();
+        try {
+            return drawdownService.create(new DrawdownRequest(money("700.00")), key);
+        } catch (AppException exception) {
+            return exception;
+        }
+    }
+
+    private CreditApplicationResponse approve() {
+        return applicationService.submit(new CreditApplicationRequest(
+                money("3000.00"), money("1400.00"), money("500.00"), "SGD"));
+    }
+
+    private BigDecimal money(String value) {
+        return new BigDecimal(value);
+    }
+}
