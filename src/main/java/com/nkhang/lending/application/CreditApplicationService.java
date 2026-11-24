@@ -2,6 +2,8 @@ package com.nkhang.lending.application;
 
 import com.nkhang.lending.assessment.CreditAssessmentPolicy;
 import com.nkhang.lending.assessment.CreditDecision;
+import com.nkhang.lending.assessment.CreditProfile;
+import com.nkhang.lending.assessment.CreditProfileRepository;
 import com.nkhang.lending.assessment.DecisionStatus;
 import com.nkhang.lending.application.dto.CreditApplicationRequest;
 import com.nkhang.lending.application.dto.CreditApplicationResponse;
@@ -27,6 +29,7 @@ public class CreditApplicationService {
     final CreditApplicationRepository applicationRepository;
     final CreditAccountRepository accountRepository;
     final CreditAssessmentPolicy policy;
+    final CreditProfileRepository profiles;
     final Clock clock;
 
     final CurrentUser currentUser;
@@ -37,14 +40,15 @@ public class CreditApplicationService {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Only SGD is supported");
         }
         LendingUser user = userRepository.findByIdForUpdate(currentUser.id())
-                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Demo user not found"));
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "User not found"));
         if (accountRepository.existsByUserId(currentUser.id())) {
             throw new AppException(ErrorCode.APPLICATION_ALREADY_APPROVED);
         }
+        CreditProfile profile = profiles.findById(currentUser.id()).orElse(null);
         CreditDecision decision = policy.assess(request.monthlyNetIncome(),
-                request.monthlyLivingExpenses(), request.monthlyDebtPayments());
+                request.monthlyLivingExpenses(), request.monthlyDebtPayments(), profile);
         CreditApplication application = applicationRepository.save(
-                CreditApplication.assessed(user, request, decision, clock.instant()));
+                CreditApplication.assessed(user, request, decision, profile, clock.instant()));
         if (decision.status() == DecisionStatus.APPROVED) {
             accountRepository.save(CreditAccount.active(user, decision.approvedLimit()));
         }

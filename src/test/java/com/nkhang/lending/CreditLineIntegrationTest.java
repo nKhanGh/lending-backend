@@ -55,7 +55,7 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
         CreditApplicationResponse approved = approve();
         assertThat(approved.decision()).isEqualTo("APPROVED");
         assertThat(approved.reasonCode()).isEqualTo("APPROVED_TIER_1000");
-        assertThat(approved.policyVersion()).isEqualTo("DEMO_V1");
+        assertThat(approved.policyVersion()).isEqualTo("DEMO_V2");
         assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("1000.00");
         assertThatThrownBy(this::approve).isInstanceOfSatisfying(AppException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.APPLICATION_ALREADY_APPROVED));
