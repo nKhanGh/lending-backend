@@ -13,3 +13,7 @@ Scope source: the user-provided `mini-lending-credit-line-30h.md`. This branch s
 9. Document setup, API contract, and the `3000 / 1400 / 500` demo scenario.
 
 Frontend, authentication, multiple users, partial or asynchronous repayment, fees, overdue processing, ledger, audit subsystem, and policy V2 are outside this branch's scope.
+
+## Follow-up correctness improvement
+
+Flyway V2 adds result snapshots for drawdown and repayment. A retry of a new operation returns its original balance figures even after later transactions change the account. Existing V1 rows remain readable; they use current figures when no snapshot exists. A PostgreSQL integration test also verifies that two concurrent payments for one instalment restore credit only once.

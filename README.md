@@ -58,6 +58,8 @@ Idempotency-Key: repay-001
 
 The outstanding principal becomes SGD 600 and available limit becomes SGD 400. Paying the remaining three instalments closes the drawdown and restores the full SGD 1000 limit. A repeated key with the same operation and payload returns the existing record; reusing it for different input returns `409`.
 
+For new operations, drawdown and repayment responses store the balance at the time of success. Retrying later returns that original result even if the current account balance has changed. Flyway V2 adds these snapshots without deleting V1 data. Operations created before V2 have no historical snapshot, so their retry response uses the current available balance.
+
 Drawdown amounts must be at least SGD 0.04 so that all four instalments can be positive. The first three amounts are rounded down to cents and the last receives the remainder. All balance mutations occur in one PostgreSQL transaction under a pessimistic lock on the credit account row.
 
 ## Test
@@ -66,4 +68,4 @@ Drawdown amounts must be at least SGD 0.04 so that all four instalments can be p
 mvn clean verify
 ```
 
-The integration tests start PostgreSQL through Testcontainers. They cover the decision boundaries, limit rejection, two concurrent drawdowns, retries, repayment order, closure, and transaction rollback. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the exact backend scope.
+The integration tests start PostgreSQL through Testcontainers. They cover the decision boundaries, limit rejection, concurrent drawdowns and repayments, exact retry responses, repayment order, closure, and transaction rollback. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the backend scope.

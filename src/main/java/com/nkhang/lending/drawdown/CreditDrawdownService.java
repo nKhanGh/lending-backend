@@ -37,16 +37,17 @@ public class CreditDrawdownService {
             if (drawdown.getOriginalAmount().compareTo(request.amount()) != 0) {
                 throw new AppException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
             }
-            return DrawdownResponse.from(drawdown, account.getAvailableLimit());
+            return DrawdownResponse.fromReplay(drawdown, account.getAvailableLimit());
         }
 
         account.utilize(request.amount());
         var now = Instant.now(clock);
-        var drawdown = drawdownRepository.save(new CreditDrawdown(account.getId(), request.amount(), key, now));
+        var drawdown = drawdownRepository.save(new CreditDrawdown(account.getId(), request.amount(), key,
+                now, account.getAvailableLimit()));
         var instalments = scheduleFactory.create(drawdown.getId(), request.amount(),
                 LocalDate.ofInstant(now, clock.getZone()));
         instalmentRepository.saveAll(instalments);
-        return DrawdownResponse.from(drawdown, account.getAvailableLimit());
+        return DrawdownResponse.fromReplay(drawdown, account.getAvailableLimit());
     }
 
     @Transactional(readOnly = true)

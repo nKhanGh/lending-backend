@@ -14,4 +14,11 @@ public record DrawdownResponse(UUID drawdownId, BigDecimal originalAmount, BigDe
                 drawdown.getOutstandingPrincipal(), drawdown.getStatus(), drawdown.getCreatedAt(),
                 4, availableLimit);
     }
+
+    public static DrawdownResponse fromReplay(CreditDrawdown drawdown, BigDecimal currentAvailableLimit) {
+        return new DrawdownResponse(drawdown.getId(), drawdown.getOriginalAmount(),
+                drawdown.getOriginalAmount(), CreditDrawdown.Status.ACTIVE, drawdown.getCreatedAt(),
+                4, drawdown.getAvailableLimitAfter() == null
+                ? currentAvailableLimit : drawdown.getAvailableLimitAfter());
+    }
 }

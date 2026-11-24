@@ -28,8 +28,10 @@ public class CreditDrawdown {
     private Status status;
     private Instant createdAt;
     private String idempotencyKey;
+    private BigDecimal availableLimitAfter;
 
-    public CreditDrawdown(UUID accountId, BigDecimal amount, String idempotencyKey, Instant createdAt) {
+    public CreditDrawdown(UUID accountId, BigDecimal amount, String idempotencyKey, Instant createdAt,
+                          BigDecimal availableLimitAfter) {
         this.id = UUID.randomUUID();
         this.accountId = accountId;
         this.originalAmount = amount;
@@ -37,6 +39,7 @@ public class CreditDrawdown {
         this.status = Status.ACTIVE;
         this.createdAt = createdAt;
         this.idempotencyKey = idempotencyKey;
+        this.availableLimitAfter = availableLimitAfter;
     }
 
     public void repay(BigDecimal amount) {

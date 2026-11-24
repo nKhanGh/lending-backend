@@ -62,11 +62,12 @@ public class RepaymentService {
         }
 
         Instant now = Instant.now(clock);
-        var repayment = repaymentRepository.save(new RepaymentTransaction(instalmentId,
-                instalment.getAmount(), now, key));
         instalment.markPaid(now);
         drawdown.repay(instalment.getAmount());
         account.restore(instalment.getAmount());
+        var repayment = repaymentRepository.save(new RepaymentTransaction(instalmentId,
+                instalment.getAmount(), now, key, drawdown.getOutstandingPrincipal(),
+                account.getAvailableLimit()));
         return RepaymentResponse.from(repayment, drawdown.getOutstandingPrincipal(), account.getAvailableLimit());
     }
 

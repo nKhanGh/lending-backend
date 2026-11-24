@@ -27,13 +27,18 @@ public class RepaymentTransaction {
     private Status status;
     private Instant paidAt;
     private String idempotencyKey;
+    private BigDecimal remainingPrincipalAfter;
+    private BigDecimal availableLimitAfter;
 
-    public RepaymentTransaction(UUID instalmentId, BigDecimal amount, Instant paidAt, String idempotencyKey) {
+    public RepaymentTransaction(UUID instalmentId, BigDecimal amount, Instant paidAt, String idempotencyKey,
+                                BigDecimal remainingPrincipalAfter, BigDecimal availableLimitAfter) {
         this.id = UUID.randomUUID();
         this.instalmentId = instalmentId;
         this.amount = amount;
         this.status = Status.SUCCESS;
         this.paidAt = paidAt;
         this.idempotencyKey = idempotencyKey;
+        this.remainingPrincipalAfter = remainingPrincipalAfter;
+        this.availableLimitAfter = availableLimitAfter;
     }
 }

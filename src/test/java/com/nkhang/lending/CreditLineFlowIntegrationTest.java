@@ -1,6 +1,5 @@
 package com.nkhang.lending;
 
-import com.nkhang.lending.application.CreditApplicationRepository;
 import com.nkhang.lending.application.CreditApplicationService;
 import com.nkhang.lending.application.dto.CreditApplicationRequest;
 import com.nkhang.lending.common.exception.AppException;
@@ -28,7 +27,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,7 +39,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CreditLineFlowIntegrationTest extends PostgresIntegrationTest {
     @Autowired MockMvc mockMvc;
     @Autowired CreditApplicationService applicationService;
-    @Autowired CreditApplicationRepository applicationRepository;
     @Autowired CreditAccountService accountService;
     @Autowired CreditAccountRepository accountRepository;
     @Autowired CreditDrawdownService drawdownService;
@@ -122,6 +119,11 @@ class CreditLineFlowIntegrationTest extends PostgresIntegrationTest {
         assertEquals(first.repaymentId(), retry.repaymentId());
         assertMoney("600.00", first.remainingDrawdownPrincipal());
         assertMoney("400.00", first.availableLimit());
+        var drawdownRetry = drawdownService.utilize(new DrawdownRequest(money("800.00")), "draw-1");
+        assertEquals(drawdown.drawdownId(), drawdownRetry.drawdownId());
+        assertMoney("800.00", drawdownRetry.outstandingPrincipal());
+        assertMoney("200.00", drawdownRetry.availableLimit());
+        assertEquals(CreditDrawdown.Status.ACTIVE, drawdownRetry.status());
         assertEquals(1, repaymentRepository.count());
         assertEquals(ErrorCode.INVALID_REPAYMENT_STATE,
                 assertThrows(AppException.class, () -> repaymentService.repay(schedule.get(0).id(), "another-key"))
@@ -139,6 +141,10 @@ class CreditLineFlowIntegrationTest extends PostgresIntegrationTest {
         assertMoney("0.00", accountService.getAccount().usedLimit());
         assertMoney("1000.00", accountService.getAccount().availableLimit());
         assertEquals(4, repaymentService.history(drawdown.drawdownId()).size());
+        var lateRetry = repaymentService.repay(schedule.get(0).id(), "repay-1");
+        assertEquals(first.repaymentId(), lateRetry.repaymentId());
+        assertMoney("600.00", lateRetry.remainingDrawdownPrincipal());
+        assertMoney("400.00", lateRetry.availableLimit());
     }
 
     @Test
@@ -167,6 +173,26 @@ class CreditLineFlowIntegrationTest extends PostgresIntegrationTest {
         assertMoney("300.00", accountService.getAccount().availableLimit());
     }
 
+    @Test
+    void concurrentRepaymentsOnlyRestoreCreditOnce() throws Exception {
+        approve();
+        var drawdown = drawdownService.utilize(new DrawdownRequest(money("800.00")), "draw-1");
+        UUID instalmentId = drawdownService.get(drawdown.drawdownId()).instalments().get(0).id();
+        var start = new CountDownLatch(1);
+        var ready = new CountDownLatch(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> attemptRepayment(instalmentId, "repay-a", ready, start));
+            var second = executor.submit(() -> attemptRepayment(instalmentId, "repay-b", ready, start));
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            assertNotEquals(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+        }
+        assertEquals(1, repaymentRepository.count());
+        assertMoney("600.00", accountService.getAccount().usedLimit());
+        assertMoney("600.00", drawdownRepository.findById(drawdown.drawdownId())
+                .orElseThrow().getOutstandingPrincipal());
+    }
+
     private boolean attemptDrawdown(String key, CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown();
         start.await();
@@ -175,6 +201,21 @@ class CreditLineFlowIntegrationTest extends PostgresIntegrationTest {
             return true;
         } catch (AppException exception) {
             if (exception.getErrorCode() == ErrorCode.INSUFFICIENT_CREDIT) {
+                return false;
+            }
+            throw exception;
+        }
+    }
+
+    private boolean attemptRepayment(UUID instalmentId, String key, CountDownLatch ready,
+                                     CountDownLatch start) throws Exception {
+        ready.countDown();
+        start.await();
+        try {
+            repaymentService.repay(instalmentId, key);
+            return true;
+        } catch (AppException exception) {
+            if (exception.getErrorCode() == ErrorCode.INVALID_REPAYMENT_STATE) {
                 return false;
             }
             throw exception;

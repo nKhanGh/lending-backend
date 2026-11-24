@@ -11,7 +11,9 @@ public record RepaymentResponse(UUID repaymentId, BigDecimal paidAmount,
                                 Instalment.Status instalmentStatus) {
     public static RepaymentResponse from(RepaymentTransaction repayment, BigDecimal remaining,
                                          BigDecimal available) {
-        return new RepaymentResponse(repayment.getId(), repayment.getAmount(), remaining, available,
+        return new RepaymentResponse(repayment.getId(), repayment.getAmount(),
+                repayment.getRemainingPrincipalAfter() == null ? remaining : repayment.getRemainingPrincipalAfter(),
+                repayment.getAvailableLimitAfter() == null ? available : repayment.getAvailableLimitAfter(),
                 Instalment.Status.PAID);
     }
 }
