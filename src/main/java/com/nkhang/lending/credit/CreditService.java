@@ -6,7 +6,7 @@ import com.nkhang.lending.credit.dto.CreditAccountResponse;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.beans.factory.annotation.Value;
+import com.nkhang.lending.config.CurrentUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,12 +18,11 @@ import java.util.UUID;
 public class CreditService {
     final CreditAccountRepository accountRepository;
 
-    @Value("${lending.demo-user-id}")
-    UUID demoUserId;
+    final CurrentUser currentUser;
 
     @Transactional(readOnly = true)
     public CreditAccountResponse getAccount() {
-        return accountRepository.findByUserId(demoUserId)
+        return accountRepository.findByUserId(currentUser.id())
                 .map(CreditAccountResponse::from)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "No credit account yet"));
     }

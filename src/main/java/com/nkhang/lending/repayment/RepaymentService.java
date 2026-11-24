@@ -21,7 +21,7 @@ import com.nkhang.lending.repayment.dto.RepaymentResponse;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.beans.factory.annotation.Value;
+import com.nkhang.lending.config.CurrentUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,19 +42,18 @@ public class RepaymentService {
     final ObjectMapper objectMapper;
     final Clock clock;
 
-    @Value("${lending.demo-user-id}")
-    UUID demoUserId;
+    final CurrentUser currentUser;
 
     @Transactional
     public RepaymentResponse repay(UUID instalmentId, String key) {
         IdempotencyRecord record = idempotencyService.begin(
-                IdempotencyOperation.REPAY_INSTALMENT, key, instalmentId.toString());
+                IdempotencyOperation.REPAY_INSTALMENT, currentUser.id(), key, instalmentId.toString());
         if (record.getStatus() == IdempotencyStatus.COMPLETED) {
             return readResponse(record.getResponseBody());
         }
 
         // All balance changes use account -> drawdown -> instalment lock order.
-        CreditAccount account = accountRepository.findByUserIdForUpdate(demoUserId)
+        CreditAccount account = accountRepository.findByUserIdForUpdate(currentUser.id())
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Credit account not found"));
         Instalment candidate = instalmentRepository.findById(instalmentId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Instalment not found"));
@@ -95,7 +94,7 @@ public class RepaymentService {
     public List<RepaymentHistoryResponse> history(UUID drawdownId) {
         CreditDrawdown drawdown = drawdownRepository.findById(drawdownId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Drawdown not found"));
-        if (!drawdown.getAccount().getUser().getId().equals(demoUserId)) {
+        if (!drawdown.getAccount().getUser().getId().equals(currentUser.id())) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Drawdown not found");
         }
         return repaymentRepository.findAllByDrawdownId(drawdownId).stream()

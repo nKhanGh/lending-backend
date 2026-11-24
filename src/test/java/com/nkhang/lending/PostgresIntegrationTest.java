@@ -35,5 +35,6 @@ public abstract class PostgresIntegrationTest {
         jdbcTemplate.execute("delete from idempotency_records");
         jdbcTemplate.execute("delete from credit_accounts");
         jdbcTemplate.execute("delete from credit_applications");
+        jdbcTemplate.execute("delete from users where id <> '00000000-0000-0000-0000-000000000001'");
     }
 }

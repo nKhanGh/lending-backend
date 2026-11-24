@@ -4,6 +4,23 @@ Java 21 / Spring Boot 3.5 / PostgreSQL simulator for credit assessment, limit ut
 
 ## Run locally
 
+V2 backend endpoints require a bearer token. Set a stable \`JWT_SECRET\` of at least 32 bytes
+outside the repository for tokens to survive restarts. Without it, a random local-only key
+is generated at startup. To create an administrator, set \`BOOTSTRAP_ADMIN_EMAIL\` and
+\`BOOTSTRAP_ADMIN_PASSWORD\` (12+ characters) before the first start; neither is seeded by default.
+The original seeded demo user has no login credential. Register a new customer to use V2.
+
+\`\`\`powershell
+$register = Invoke-RestMethod http://localhost:8080/api/auth/register -Method Post -ContentType 'application/json' -Body '{"displayName":"Demo","email":"demo@example.test","password":"password123"}'
+$token = $register.result.accessToken
+$headers = @{Authorization = "Bearer $token"}
+Invoke-RestMethod http://localhost:8080/api/auth/me -Headers $headers
+\`\`\`
+
+Add \`$headers\` to the credit-line API requests below. Customer routes are scoped to the
+token's user ID; \`GET /api/admin/users\` requires the ADMIN role. The existing frontend
+branch has no login flow yet and will need a separate update to call this V2 backend.
+
 Requirements: Java 21, Maven 3.9+, Docker Desktop.
 
 ```bash

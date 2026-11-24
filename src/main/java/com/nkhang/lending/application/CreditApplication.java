@@ -32,7 +32,7 @@ public class CreditApplication {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
-    DemoUser user;
+    LendingUser user;
 
     @Column(name = "monthly_net_income", nullable = false, precision = 19, scale = 2)
     BigDecimal monthlyNetIncome;
@@ -62,7 +62,7 @@ public class CreditApplication {
     @Column(name = "assessed_at", nullable = false)
     Instant assessedAt;
 
-    public static CreditApplication assessed(DemoUser user, CreditApplicationRequest request,
+    public static CreditApplication assessed(LendingUser user, CreditApplicationRequest request,
                                              CreditDecision decision, Instant now) {
         CreditApplication application = new CreditApplication();
         application.id = UUID.randomUUID();

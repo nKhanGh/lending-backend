@@ -28,6 +28,9 @@ public class IdempotencyRecord {
     @Column(nullable = false, length = 40)
     IdempotencyOperation operation;
 
+    @Column(name = "user_id", nullable = false)
+    UUID userId;
+
     @Column(name = "idempotency_key", nullable = false, length = 120)
     String idempotencyKey;
 
@@ -54,10 +57,11 @@ public class IdempotencyRecord {
     Instant updatedAt;
 
     public static IdempotencyRecord processing(
-            IdempotencyOperation operation, String key, String fingerprint, Instant now) {
+            IdempotencyOperation operation, UUID userId, String key, String fingerprint, Instant now) {
         IdempotencyRecord record = new IdempotencyRecord();
         record.id = UUID.randomUUID();
         record.operation = operation;
+        record.userId = userId;
         record.idempotencyKey = key;
         record.requestFingerprint = fingerprint;
         record.status = IdempotencyStatus.PROCESSING;

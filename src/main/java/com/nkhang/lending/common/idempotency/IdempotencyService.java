@@ -25,16 +25,16 @@ public class IdempotencyService {
     Clock clock;
 
     public IdempotencyRecord begin(
-            IdempotencyOperation operation, String rawKey, String fingerprintSource) {
+            IdempotencyOperation operation, java.util.UUID userId, String rawKey, String fingerprintSource) {
         String key = validateKey(rawKey);
         String fingerprint = sha256(fingerprintSource);
 
-        acquireTransactionLock(operation + ":" + key);
+        acquireTransactionLock(userId + ":" + operation + ":" + key);
 
-        return idempotencyRepository.findByOperationAndIdempotencyKey(operation, key)
+        return idempotencyRepository.findByUserIdAndOperationAndIdempotencyKey(userId, operation, key)
                 .map(existing -> validateExisting(existing, fingerprint))
                 .orElseGet(() -> idempotencyRepository.save(
-                        IdempotencyRecord.processing(operation, key, fingerprint, clock.instant())));
+                        IdempotencyRecord.processing(operation, userId, key, fingerprint, clock.instant())));
     }
 
     public void complete(IdempotencyRecord record, java.util.UUID resourceId, int httpStatus) {

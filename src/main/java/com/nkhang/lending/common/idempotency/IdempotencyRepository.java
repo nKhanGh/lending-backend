@@ -9,11 +9,8 @@ import java.util.UUID;
 
 public interface IdempotencyRepository extends JpaRepository<IdempotencyRecord, UUID> {
 
-    Optional<IdempotencyRecord> findByOperationAndIdempotencyKey(
-            IdempotencyOperation operation, String idempotencyKey);
+    Optional<IdempotencyRecord> findByUserIdAndOperationAndIdempotencyKey(
+            UUID userId, IdempotencyOperation operation, String idempotencyKey);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    Optional<IdempotencyRecord> findWithLockByOperationAndIdempotencyKey(
-            IdempotencyOperation operation, String idempotencyKey);
 }
 
