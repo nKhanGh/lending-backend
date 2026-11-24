@@ -1,6 +1,6 @@
 package com.nkhang.lending.credit;
 
-import com.nkhang.lending.application.DemoUser;
+import com.nkhang.lending.application.LendingUser;
 import com.nkhang.lending.common.exception.AppException;
 import com.nkhang.lending.common.exception.ErrorCode;
 import jakarta.persistence.Column;
@@ -32,7 +32,7 @@ public class CreditAccount {
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false, unique = true)
-    DemoUser user;
+    LendingUser user;
 
     @Column(name = "total_limit", nullable = false, precision = 19, scale = 2)
     BigDecimal totalLimit;
@@ -50,7 +50,7 @@ public class CreditAccount {
     @Version
     long version;
 
-    public static CreditAccount active(DemoUser user, BigDecimal limit) {
+    public static CreditAccount active(LendingUser user, BigDecimal limit) {
         CreditAccount account = new CreditAccount();
         account.id = UUID.randomUUID();
         account.user = user;

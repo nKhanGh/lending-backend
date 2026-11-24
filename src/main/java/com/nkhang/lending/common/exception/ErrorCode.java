@@ -8,6 +8,9 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum ErrorCode {
     INVALID_REQUEST(40000, "Invalid request", HttpStatus.BAD_REQUEST),
+    UNAUTHENTICATED(40100, "Authentication required", HttpStatus.UNAUTHORIZED),
+    INVALID_CREDENTIALS(40101, "Invalid email or password", HttpStatus.UNAUTHORIZED),
+    EMAIL_ALREADY_EXISTS(40900, "Email already registered", HttpStatus.CONFLICT),
     RESOURCE_NOT_FOUND(40400, "Resource not found", HttpStatus.NOT_FOUND),
     APPLICATION_ALREADY_APPROVED(40901, "Credit account already exists", HttpStatus.CONFLICT),
     INSUFFICIENT_LIMIT(40902, "Insufficient available credit", HttpStatus.CONFLICT),

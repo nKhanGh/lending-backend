@@ -9,8 +9,10 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface DemoUserRepository extends JpaRepository<DemoUser, UUID> {
+public interface LendingUserRepository extends JpaRepository<LendingUser, UUID> {
+    Optional<LendingUser> findByEmailIgnoreCase(String email);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select user from DemoUser user where user.id = :id")
-    Optional<DemoUser> findByIdForUpdate(@Param("id") UUID id);
+    @Query("select user from LendingUser user where user.id = :id")
+    Optional<LendingUser> findByIdForUpdate(@Param("id") UUID id);
 }

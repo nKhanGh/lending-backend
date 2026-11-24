@@ -12,7 +12,7 @@ import com.nkhang.lending.credit.CreditAccountRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.beans.factory.annotation.Value;
+import com.nkhang.lending.config.CurrentUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,23 +23,22 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class CreditApplicationService {
-    final DemoUserRepository userRepository;
+    final LendingUserRepository userRepository;
     final CreditApplicationRepository applicationRepository;
     final CreditAccountRepository accountRepository;
     final CreditAssessmentPolicy policy;
     final Clock clock;
 
-    @Value("${lending.demo-user-id}")
-    UUID demoUserId;
+    final CurrentUser currentUser;
 
     @Transactional
     public CreditApplicationResponse submit(CreditApplicationRequest request) {
         if (request.currency() != null && !"SGD".equals(request.currency())) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Only SGD is supported");
         }
-        DemoUser user = userRepository.findByIdForUpdate(demoUserId)
+        LendingUser user = userRepository.findByIdForUpdate(currentUser.id())
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Demo user not found"));
-        if (accountRepository.existsByUserId(demoUserId)) {
+        if (accountRepository.existsByUserId(currentUser.id())) {
             throw new AppException(ErrorCode.APPLICATION_ALREADY_APPROVED);
         }
         CreditDecision decision = policy.assess(request.monthlyNetIncome(),
@@ -54,7 +53,7 @@ public class CreditApplicationService {
 
     @Transactional(readOnly = true)
     public CreditApplicationResponse latest() {
-        return applicationRepository.findFirstByUserIdOrderByAssessedAtDesc(demoUserId)
+        return applicationRepository.findFirstByUserIdOrderByAssessedAtDesc(currentUser.id())
                 .map(CreditApplicationResponse::from)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "No credit application yet"));
     }

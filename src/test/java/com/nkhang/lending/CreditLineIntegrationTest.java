@@ -12,8 +12,11 @@ import com.nkhang.lending.drawdown.dto.DrawdownRequest;
 import com.nkhang.lending.repayment.dto.RepaymentResponse;
 import com.nkhang.lending.repayment.RepaymentService;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -26,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
+@WithMockUser(username = "00000000-0000-0000-0000-000000000001", roles = "CUSTOMER")
 class CreditLineIntegrationTest extends PostgresIntegrationTest {
     @Autowired CreditApplicationService applicationService;
     @Autowired CreditService creditService;
@@ -110,9 +114,10 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
     void concurrentDrawdownsCannotExceedLimit() throws Exception {
         approve();
         CountDownLatch start = new CountDownLatch(1);
+        SecurityContext securityContext = SecurityContextHolder.getContext();
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
-            Future<Object> first = executor.submit(() -> tryDraw(start, "race-one"));
-            Future<Object> second = executor.submit(() -> tryDraw(start, "race-two"));
+            Future<Object> first = executor.submit(() -> tryDrawAsUser(start, "race-one", securityContext));
+            Future<Object> second = executor.submit(() -> tryDrawAsUser(start, "race-two", securityContext));
             start.countDown();
             Object firstResult = first.get();
             Object secondResult = second.get();
@@ -123,6 +128,16 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
         assertThat(drawdownService.list()).hasSize(1);
         assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("700.00");
         assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("300.00");
+    }
+
+    private Object tryDrawAsUser(CountDownLatch start, String key, SecurityContext context)
+            throws InterruptedException {
+        SecurityContextHolder.setContext(context);
+        try {
+            return tryDraw(start, key);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     private Object tryDraw(CountDownLatch start, String key) throws InterruptedException {

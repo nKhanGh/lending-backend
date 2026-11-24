@@ -19,7 +19,7 @@ import com.nkhang.lending.instalment.InstalmentScheduleFactory;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.beans.factory.annotation.Value;
+import com.nkhang.lending.config.CurrentUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,8 +42,7 @@ public class CreditDrawdownService {
     final ObjectMapper objectMapper;
     final Clock clock;
 
-    @Value("${lending.demo-user-id}")
-    UUID demoUserId;
+    final CurrentUser currentUser;
 
     @Transactional
     public DrawdownDetailResponse create(DrawdownRequest request, String key) {
@@ -53,12 +52,12 @@ public class CreditDrawdownService {
         }
         amount = amount.setScale(2);
         IdempotencyRecord record = idempotencyService.begin(
-                IdempotencyOperation.CREATE_DRAWDOWN, key, amount.toPlainString());
+                IdempotencyOperation.CREATE_DRAWDOWN, currentUser.id(), key, amount.toPlainString());
         if (record.getStatus() == IdempotencyStatus.COMPLETED) {
             return readResponse(record.getResponseBody());
         }
 
-        CreditAccount account = accountRepository.findByUserIdForUpdate(demoUserId)
+        CreditAccount account = accountRepository.findByUserIdForUpdate(currentUser.id())
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Submit a credit application first"));
         account.utilize(amount);
         Instant now = clock.instant();
@@ -72,7 +71,7 @@ public class CreditDrawdownService {
 
     @Transactional(readOnly = true)
     public List<DrawdownResponse> list() {
-        return drawdownRepository.findAllForUser(demoUserId).stream()
+        return drawdownRepository.findAllForUser(currentUser.id()).stream()
                 .map(DrawdownResponse::from).toList();
     }
 
@@ -80,7 +79,7 @@ public class CreditDrawdownService {
     public DrawdownDetailResponse detail(UUID id) {
         CreditDrawdown drawdown = drawdownRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Drawdown not found"));
-        if (!drawdown.getAccount().getUser().getId().equals(demoUserId)) {
+        if (!drawdown.getAccount().getUser().getId().equals(currentUser.id())) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Drawdown not found");
         }
         return DrawdownDetailResponse.from(drawdown,
