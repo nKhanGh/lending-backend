@@ -17,6 +17,7 @@ import com.nkhang.lending.instalment.Instalment;
 import com.nkhang.lending.instalment.InstalmentRepository;
 import com.nkhang.lending.instalment.InstalmentScheduleFactory;
 import com.nkhang.lending.ledger.LedgerService;
+import com.nkhang.lending.audit.AuditService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -40,6 +41,7 @@ public class CreditDrawdownService {
     final InstalmentRepository instalmentRepository;
     final InstalmentScheduleFactory scheduleFactory;
     final LedgerService ledgerService;
+    final AuditService audit;
     final IdempotencyService idempotencyService;
     final ObjectMapper objectMapper;
     final Clock clock;
@@ -67,6 +69,8 @@ public class CreditDrawdownService {
         List<Instalment> schedule = instalmentRepository.saveAll(
                 scheduleFactory.create(drawdown, LocalDate.ofInstant(now, clock.getZone())));
         ledgerService.drawdown(currentUser.id(), drawdown.getId(), amount);
+        audit.record(currentUser.id(), currentUser.id(), "DRAWDOWN_CREATED", "DRAWDOWN",
+                drawdown.getId(), "amount=" + amount.toPlainString());
         DrawdownDetailResponse response = DrawdownDetailResponse.from(
                 drawdown, schedule, LocalDate.ofInstant(now, clock.getZone()));
         idempotencyService.complete(record, drawdown.getId(), writeResponse(response), 201);

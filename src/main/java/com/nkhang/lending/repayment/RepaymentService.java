@@ -16,6 +16,7 @@ import com.nkhang.lending.instalment.Instalment;
 import com.nkhang.lending.instalment.InstalmentRepository;
 import com.nkhang.lending.instalment.InstalmentStatus;
 import com.nkhang.lending.ledger.LedgerService;
+import com.nkhang.lending.audit.AuditService;
 import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.dto.RepaymentHistoryResponse;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class RepaymentService {
     private final RepaymentTransactionRepository repaymentRepository;
     private final PaymentAttemptRepository attemptRepository;
     private final LedgerService ledgerService;
+    private final AuditService audit;
     private final IdempotencyService idempotencyService;
     private final CurrentUser currentUser;
     private final Clock clock;
@@ -92,6 +94,8 @@ public class RepaymentService {
         }
         PaymentAttempt attempt = attemptRepository.save(PaymentAttempt.pending(
                 userId, instalment, amount, clock.instant().truncatedTo(ChronoUnit.MICROS)));
+        audit.record(userId, userId, "PAYMENT_REQUESTED", "PAYMENT_ATTEMPT",
+                attempt.getId(), "amount=" + amount.toPlainString());
         idempotencyService.complete(record, attempt.getId(), 202);
         return PaymentAttemptResponse.from(attempt);
     }
@@ -134,6 +138,8 @@ public class RepaymentService {
             ledgerService.repayment(attempt.getUserId(), repayment.getId(), attempt.getAmount());
         }
         attempt.resolve(outcome, eventId, now);
+        audit.record(currentUser.id(), attempt.getUserId(), "PAYMENT_" + outcome.name(),
+                "PAYMENT_ATTEMPT", attempt.getId(), "event=" + eventId);
         return PaymentAttemptResponse.from(attempt);
     }
 

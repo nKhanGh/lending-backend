@@ -11,6 +11,7 @@ import com.nkhang.lending.drawdown.dto.DrawdownDetailResponse;
 import com.nkhang.lending.drawdown.dto.DrawdownRequest;
 import com.nkhang.lending.instalment.OverdueService;
 import com.nkhang.lending.ledger.ReconciliationService;
+import com.nkhang.lending.audit.AuditService;
 import com.nkhang.lending.repayment.PaymentAttemptStatus;
 import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.RepaymentService;
@@ -43,6 +44,7 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
     @Autowired RepaymentService repaymentService;
     @Autowired OverdueService overdueService;
     @Autowired ReconciliationService reconciliationService;
+    @Autowired AuditService auditService;
 
     @Test
     void rejectedApplicationCanBeReassessedButApprovedAccountCannotBeDuplicated() {
@@ -213,6 +215,8 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
         });
         assertThat(jdbcTemplate.queryForObject("select count(*) from ledger_journals", Integer.class)).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject("select count(*) from ledger_entries", Integer.class)).isEqualTo(4);
+        assertThat(auditService.recent(null, 50)).extracting(event -> event.action())
+                .contains("CREDIT_ASSESSED", "DRAWDOWN_CREATED", "PAYMENT_REQUESTED", "PAYMENT_SUCCEEDED");
         assertThat(reconciliationService.accounts()).singleElement()
                 .satisfies(row -> assertThat(row.unbalancedJournals()).isZero());
         jdbcTemplate.update("update credit_accounts set used_limit = 0");
