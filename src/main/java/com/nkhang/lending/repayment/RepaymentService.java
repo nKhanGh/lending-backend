@@ -15,6 +15,7 @@ import com.nkhang.lending.drawdown.DrawdownStatus;
 import com.nkhang.lending.instalment.Instalment;
 import com.nkhang.lending.instalment.InstalmentRepository;
 import com.nkhang.lending.instalment.InstalmentStatus;
+import com.nkhang.lending.ledger.LedgerService;
 import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.dto.RepaymentHistoryResponse;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class RepaymentService {
     private final InstalmentRepository instalmentRepository;
     private final RepaymentTransactionRepository repaymentRepository;
     private final PaymentAttemptRepository attemptRepository;
+    private final LedgerService ledgerService;
     private final IdempotencyService idempotencyService;
     private final CurrentUser currentUser;
     private final Clock clock;
@@ -127,7 +129,9 @@ public class RepaymentService {
             instalment.applyPayment(attempt.getAmount(), now);
             drawdown.repay(attempt.getAmount());
             account.repay(attempt.getAmount());
-            repaymentRepository.save(RepaymentTransaction.success(instalment, attempt.getAmount(), now));
+            RepaymentTransaction repayment = repaymentRepository.save(
+                    RepaymentTransaction.success(instalment, attempt.getAmount(), now));
+            ledgerService.repayment(attempt.getUserId(), repayment.getId(), attempt.getAmount());
         }
         attempt.resolve(outcome, eventId, now);
         return PaymentAttemptResponse.from(attempt);
