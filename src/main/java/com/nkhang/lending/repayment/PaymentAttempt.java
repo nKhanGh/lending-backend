@@ -36,12 +36,12 @@ public class PaymentAttempt {
     @Column(name = "resolved_at") Instant resolvedAt;
     @Column(name = "provider_event_id", length = 120) String providerEventId;
 
-    public static PaymentAttempt pending(UUID userId, Instalment instalment, Instant now) {
+    public static PaymentAttempt pending(UUID userId, Instalment instalment, BigDecimal amount, Instant now) {
         PaymentAttempt attempt = new PaymentAttempt();
         attempt.id = UUID.randomUUID();
         attempt.userId = userId;
         attempt.instalment = instalment;
-        attempt.amount = instalment.getAmount();
+        attempt.amount = amount;
         attempt.status = PaymentAttemptStatus.PENDING;
         attempt.requestedAt = now;
         return attempt;

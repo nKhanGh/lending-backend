@@ -39,6 +39,9 @@ public class Instalment {
     @Column(nullable = false, precision = 19, scale = 2)
     BigDecimal amount;
 
+    @Column(name = "paid_amount", nullable = false, precision = 19, scale = 2)
+    BigDecimal paidAmount;
+
     @Column(name = "due_date", nullable = false)
     LocalDate dueDate;
 
@@ -56,16 +59,25 @@ public class Instalment {
         instalment.drawdown = drawdown;
         instalment.sequenceNo = sequenceNo;
         instalment.amount = amount;
+        instalment.paidAmount = new BigDecimal("0.00");
         instalment.dueDate = dueDate;
         instalment.status = InstalmentStatus.UNPAID;
         return instalment;
     }
 
-    public void markPaid(Instant now) {
-        if (status != InstalmentStatus.UNPAID) {
-            throw new IllegalStateException("Instalment is already paid");
+    public BigDecimal getRemainingAmount() {
+        return amount.subtract(paidAmount);
+    }
+
+    public void applyPayment(BigDecimal payment, Instant now) {
+        if (status == InstalmentStatus.PAID || payment.signum() <= 0
+                || payment.compareTo(getRemainingAmount()) > 0) {
+            throw new IllegalStateException("Invalid instalment payment");
         }
-        status = InstalmentStatus.PAID;
-        paidAt = now;
+        paidAmount = paidAmount.add(payment);
+        if (getRemainingAmount().signum() == 0) {
+            status = InstalmentStatus.PAID;
+            paidAt = now;
+        }
     }
 }

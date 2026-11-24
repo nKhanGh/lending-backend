@@ -3,6 +3,7 @@ package com.nkhang.lending.repayment;
 import com.nkhang.lending.common.api.ApiResponse;
 import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.dto.RepaymentHistoryResponse;
+import com.nkhang.lending.repayment.dto.RepaymentRequest;
 import com.nkhang.lending.repayment.dto.SettlePaymentRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -27,9 +28,9 @@ public class RepaymentController {
 
     @PostMapping("/instalments/{id}/repay")
     public ResponseEntity<ApiResponse<PaymentAttemptResponse>> request(@PathVariable UUID id,
-            @RequestHeader("Idempotency-Key") String key) {
+            @RequestHeader("Idempotency-Key") String key, @Valid @RequestBody(required = false) RepaymentRequest request) {
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(ApiResponse.success(service.request(id, key), "Payment pending"));
+                .body(ApiResponse.success(service.request(id, key, request == null ? null : request.amount()), "Payment pending"));
     }
 
     @GetMapping("/payment-attempts/{id}")

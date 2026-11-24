@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,9 +42,18 @@ public class RepaymentService {
 
     @Transactional
     public PaymentAttemptResponse request(UUID instalmentId, String key) {
+        return request(instalmentId, key, null);
+    }
+
+    @Transactional
+    public PaymentAttemptResponse request(UUID instalmentId, String key, BigDecimal requestedAmount) {
+        if (requestedAmount != null && (requestedAmount.scale() > 2 || requestedAmount.signum() <= 0)) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Payment amount must be positive with two decimals");
+        }
         UUID userId = currentUser.id();
         IdempotencyRecord record = idempotencyService.begin(
-                IdempotencyOperation.REPAY_INSTALMENT, userId, key, instalmentId.toString());
+                IdempotencyOperation.REPAY_INSTALMENT, userId, key,
+                instalmentId + ":" + (requestedAmount == null ? "REMAINING" : requestedAmount.setScale(2).toPlainString()));
         if (record.getStatus() == IdempotencyStatus.COMPLETED) {
             return ownedAttempt(record.getResourceId(), userId);
         }
@@ -74,8 +84,12 @@ public class RepaymentService {
         if (attemptRepository.existsByInstalmentIdAndStatus(instalmentId, PaymentAttemptStatus.PENDING)) {
             throw new AppException(ErrorCode.PAYMENT_ALREADY_PENDING);
         }
+        BigDecimal amount = requestedAmount == null ? instalment.getRemainingAmount() : requestedAmount.setScale(2);
+        if (amount.signum() <= 0 || amount.compareTo(instalment.getRemainingAmount()) > 0) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Payment exceeds remaining instalment amount");
+        }
         PaymentAttempt attempt = attemptRepository.save(PaymentAttempt.pending(
-                userId, instalment, clock.instant().truncatedTo(ChronoUnit.MICROS)));
+                userId, instalment, amount, clock.instant().truncatedTo(ChronoUnit.MICROS)));
         idempotencyService.complete(record, attempt.getId(), 202);
         return PaymentAttemptResponse.from(attempt);
     }
@@ -110,10 +124,10 @@ public class RepaymentService {
             if (instalment.getStatus() != InstalmentStatus.UNPAID || drawdown.getStatus() != DrawdownStatus.ACTIVE) {
                 throw new AppException(ErrorCode.PAYMENT_ALREADY_RESOLVED);
             }
-            instalment.markPaid(now);
-            drawdown.repay(instalment.getAmount());
-            account.repay(instalment.getAmount());
-            repaymentRepository.save(RepaymentTransaction.success(instalment, now));
+            instalment.applyPayment(attempt.getAmount(), now);
+            drawdown.repay(attempt.getAmount());
+            account.repay(attempt.getAmount());
+            repaymentRepository.save(RepaymentTransaction.success(instalment, attempt.getAmount(), now));
         }
         attempt.resolve(outcome, eventId, now);
         return PaymentAttemptResponse.from(attempt);

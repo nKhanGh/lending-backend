@@ -10,13 +10,16 @@ public record InstalmentResponse(
         UUID id,
         int sequenceNo,
         BigDecimal amount,
+        BigDecimal paidAmount,
+        BigDecimal remainingAmount,
         LocalDate dueDate,
         String status,
         Instant paidAt
 ) {
     public static InstalmentResponse from(Instalment instalment) {
         return new InstalmentResponse(instalment.getId(), instalment.getSequenceNo(),
-                instalment.getAmount(), instalment.getDueDate(), instalment.getStatus().name(),
+                instalment.getAmount(), instalment.getPaidAmount(), instalment.getRemainingAmount(),
+                instalment.getDueDate(), instalment.getStatus().name(),
                 instalment.getPaidAt());
     }
 }

@@ -63,6 +63,10 @@ Invoke-RestMethod "$base/admin/payment-attempts/$attemptId/settle" -Method Post 
 Only `SUCCEEDED` marks the instalment paid, reduces principal and restores
 available credit. `FAILED` leaves balances untouched and permits a new
 attempt. Replaying the same idempotency key or provider event is safe.
+Pass optional JSON `{"amount":40.00}` to pay part of the earliest unpaid
+instalment. Omit the body to request its full remaining balance. Partial
+payments reduce principal immediately after settlement; the instalment stays
+open until fully paid.
 
 ## API
 
@@ -74,7 +78,7 @@ attempt. Replaying the same idempotency key or provider event is safe.
 | GET | `/api/credit-applications/latest`, `/api/credit-account` | Current decision and balance |
 | POST | `/api/credit-drawdowns` | Use limit; requires Idempotency-Key |
 | GET | `/api/credit-drawdowns`, `/api/credit-drawdowns/{id}` | Drawdowns and instalments |
-| POST | `/api/instalments/{id}/repay` | Create PENDING payment attempt |
+| POST | `/api/instalments/{id}/repay` | Create PENDING payment attempt; optional partial amount |
 | GET | `/api/payment-attempts/{id}` | Own payment status |
 | GET | `/api/credit-drawdowns/{id}/payment-attempts` | Own attempt history |
 | GET | `/api/credit-drawdowns/{id}/repayments` | Successful repayments |
