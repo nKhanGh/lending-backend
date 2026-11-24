@@ -8,7 +8,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -28,8 +28,8 @@ public class RepaymentTransaction {
     @Id
     UUID id;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "instalment_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "instalment_id", nullable = false)
     Instalment instalment;
 
     @Column(nullable = false, precision = 19, scale = 2)
@@ -42,11 +42,11 @@ public class RepaymentTransaction {
     @Column(name = "paid_at", nullable = false)
     Instant paidAt;
 
-    public static RepaymentTransaction success(Instalment instalment, Instant now) {
+    public static RepaymentTransaction success(Instalment instalment, BigDecimal amount, Instant now) {
         RepaymentTransaction repayment = new RepaymentTransaction();
         repayment.id = UUID.randomUUID();
         repayment.instalment = instalment;
-        repayment.amount = instalment.getAmount();
+        repayment.amount = amount;
         repayment.status = RepaymentStatus.SUCCESS;
         repayment.paidAt = now;
         return repayment;

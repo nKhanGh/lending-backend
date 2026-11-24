@@ -140,6 +140,33 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void partialPaymentsReducePrincipalAndKeepInstalmentOpenUntilFullyPaid() {
+        approve();
+        DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("400.00")), "draw-partial");
+        UUID firstId = drawdown.instalments().getFirst().id();
+        UUID secondId = drawdown.instalments().get(1).id();
+        PaymentAttemptResponse partial = repaymentService.request(firstId, "partial-40", money("40.00"));
+        assertThat(partial.amount()).isEqualByComparingTo("40.00");
+        repaymentService.settle(partial.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-partial-40");
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("360.00");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().remainingAmount())
+                .isEqualByComparingTo("60.00");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("UNPAID");
+        assertThatThrownBy(() -> repaymentService.request(secondId, "second-too-early"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INSTALMENT_OUT_OF_ORDER));
+        assertThatThrownBy(() -> repaymentService.request(firstId, "too-much", money("60.01")))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+        PaymentAttemptResponse remainder = repaymentService.request(firstId, "remainder");
+        assertThat(remainder.amount()).isEqualByComparingTo("60.00");
+        repaymentService.settle(remainder.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-remainder");
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("300.00");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("PAID");
+        assertThat(repaymentService.history(drawdown.drawdownId())).hasSize(2);
+    }
+
+    @Test
     void concurrentDrawdownsCannotExceedLimit() throws Exception {
         approve();
         CountDownLatch start = new CountDownLatch(1);
