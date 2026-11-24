@@ -1,6 +1,7 @@
 package com.nkhang.lending.application;
 
 import com.nkhang.lending.assessment.CreditDecision;
+import com.nkhang.lending.assessment.CreditProfile;
 import com.nkhang.lending.assessment.DecisionStatus;
 import com.nkhang.lending.application.dto.CreditApplicationRequest;
 import jakarta.persistence.Column;
@@ -43,6 +44,12 @@ public class CreditApplication {
     @Column(name = "debt_payments", nullable = false, precision = 19, scale = 2)
     BigDecimal debtPayments;
 
+    @Column(name = "verified_monthly_income", precision = 19, scale = 2)
+    BigDecimal verifiedMonthlyIncome;
+
+    @Column(name = "late_payments_12m", nullable = false)
+    int latePayments12m;
+
     @Column(nullable = false, precision = 19, scale = 2)
     BigDecimal surplus;
 
@@ -63,13 +70,15 @@ public class CreditApplication {
     Instant assessedAt;
 
     public static CreditApplication assessed(LendingUser user, CreditApplicationRequest request,
-                                             CreditDecision decision, Instant now) {
+                                             CreditDecision decision, CreditProfile profile, Instant now) {
         CreditApplication application = new CreditApplication();
         application.id = UUID.randomUUID();
         application.user = user;
         application.monthlyNetIncome = request.monthlyNetIncome();
         application.livingExpenses = request.monthlyLivingExpenses();
         application.debtPayments = request.monthlyDebtPayments();
+        application.verifiedMonthlyIncome = profile == null ? null : profile.getVerifiedMonthlyIncome();
+        application.latePayments12m = profile == null ? 0 : profile.getLatePayments12m();
         application.surplus = decision.monthlySurplus();
         application.status = decision.status();
         application.decisionReason = decision.reasonCode();

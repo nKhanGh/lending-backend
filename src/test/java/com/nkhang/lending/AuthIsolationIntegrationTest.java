@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -96,5 +97,31 @@ class AuthIsolationIntegrationTest extends PostgresIntegrationTest {
     @WithMockUser(username = "00000000-0000-0000-0000-000000000001", roles = "ADMIN")
     void adminRouteRequiresAdminRole() throws Exception {
         mockMvc.perform(get("/api/admin/users")).andExpect(status().isOk());
+    }
+
+    @Test
+    void adminEvidenceIsSnapshottedIntoCreditDecision() throws Exception {
+        String token = register("evidence-" + UUID.randomUUID() + "@example.test");
+        String userId = objectMapper.readTree(mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", bearer(token))).andReturn().getResponse().getContentAsString())
+                .get("result").get("userId").asText();
+        String profile = "{\"verifiedMonthlyIncome\":2000.00,\"latePayments12m\":0}";
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/admin/credit-profiles/{id}", userId)
+                        .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON).content(profile))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/admin/credit-profiles/{id}", userId)
+                        .with(user("00000000-0000-0000-0000-000000000001").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content(profile))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/credit-applications").header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"monthlyNetIncome\":3000,\"monthlyLivingExpenses\":1400,\"monthlyDebtPayments\":500}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.result.decision").value("REJECTED"))
+                .andExpect(jsonPath("$.result.reasonCode").value("INCOME_NOT_VERIFIED"))
+                .andExpect(jsonPath("$.result.verifiedMonthlyIncome").value(2000.00))
+                .andExpect(jsonPath("$.result.policyVersion").value("DEMO_V2"));
     }
 }

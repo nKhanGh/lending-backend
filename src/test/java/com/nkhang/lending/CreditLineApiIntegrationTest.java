@@ -39,7 +39,7 @@ class CreditLineApiIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.result.monthlySurplus").value(1100.00));
         mockMvc.perform(get("/api/credit-applications/latest"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.policyVersion").value("DEMO_V1"));
+                .andExpect(jsonPath("$.result.policyVersion").value("DEMO_V2"));
 
         String drawdownJson = mockMvc.perform(post("/api/credit-drawdowns")
                         .header("Idempotency-Key", "api-drawdown-800")

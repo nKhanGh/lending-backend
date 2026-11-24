@@ -12,12 +12,16 @@ public record CreditApplicationResponse(
         String policyVersion,
         BigDecimal monthlySurplus,
         BigDecimal approvedLimit,
+        BigDecimal verifiedMonthlyIncome,
+        int latePayments12m,
         String currency,
         Instant assessedAt
 ) {
     public static CreditApplicationResponse from(CreditApplication application) {
         return new CreditApplicationResponse(application.getId(), application.getStatus().name(),
                 application.getDecisionReason(), application.getPolicyVersion(),
-                application.getSurplus(), application.getApprovedLimit(), "SGD", application.getAssessedAt());
+                application.getSurplus(), application.getApprovedLimit(),
+                application.getVerifiedMonthlyIncome(), application.getLatePayments12m(),
+                "SGD", application.getAssessedAt());
     }
 }

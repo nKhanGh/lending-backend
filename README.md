@@ -73,6 +73,14 @@ due date as `OVERDUE`. Drawdown detail also reports `daysOverdue` and
 the remaining amount, including after a partial payment. A fully settled
 instalment changes to `PAID`.
 
+Assessment policy `DEMO_V2` keeps the original surplus tiers and additionally
+rejects high existing debt payments, two or more late payments in 12 months,
+or reported income more than 10% above simulated verified income. An admin
+can set mock evidence with `PUT /api/admin/credit-profiles/{userId}`,
+for example `{"verifiedMonthlyIncome":3000.00,"latePayments12m":0}`.
+The values used are snapshotted on each application. These thresholds are
+invented for the simulator, not real underwriting rules.
+
 Every drawdown and successful repayment writes a pair of debit/credit ledger
 entries in the same PostgreSQL transaction as the balance update. V7 backfills
 journals for transactions that existed before this feature. An admin can call
@@ -97,6 +105,7 @@ The ledger is a simulator, with no external accounting integration.
 | POST | `/api/admin/payment-attempts/{id}/settle` | Simulate provider outcome |
 | GET | `/api/admin/users` | Admin-only user listing |
 | GET | `/api/admin/reconciliation` | Admin-only balance reconciliation |
+| PUT | `/api/admin/credit-profiles/{userId}` | Admin-managed simulated credit evidence |
 
 All responses use `ApiResponse<T>`. Swagger UI is at
 [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html).
