@@ -64,7 +64,8 @@ public class CreditDrawdownService {
         CreditDrawdown drawdown = drawdownRepository.save(CreditDrawdown.active(account, amount, now));
         List<Instalment> schedule = instalmentRepository.saveAll(
                 scheduleFactory.create(drawdown, LocalDate.ofInstant(now, clock.getZone())));
-        DrawdownDetailResponse response = DrawdownDetailResponse.from(drawdown, schedule);
+        DrawdownDetailResponse response = DrawdownDetailResponse.from(
+                drawdown, schedule, LocalDate.ofInstant(now, clock.getZone()));
         idempotencyService.complete(record, drawdown.getId(), writeResponse(response), 201);
         return response;
     }
@@ -83,7 +84,7 @@ public class CreditDrawdownService {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND, "Drawdown not found");
         }
         return DrawdownDetailResponse.from(drawdown,
-                instalmentRepository.findAllByDrawdownIdOrderBySequenceNoAsc(id));
+                instalmentRepository.findAllByDrawdownIdOrderBySequenceNoAsc(id), LocalDate.now(clock));
     }
 
     private String writeResponse(DrawdownDetailResponse response) {

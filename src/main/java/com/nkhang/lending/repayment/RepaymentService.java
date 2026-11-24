@@ -75,8 +75,8 @@ public class RepaymentService {
         if (drawdown.getStatus() != DrawdownStatus.ACTIVE) {
             throw new AppException(ErrorCode.DRAWDOWN_NOT_ACTIVE);
         }
-        Instalment earliest = instalmentRepository.findFirstByDrawdownIdAndStatusOrderBySequenceNoAsc(
-                drawdown.getId(), InstalmentStatus.UNPAID)
+        Instalment earliest = instalmentRepository.findFirstByDrawdownIdAndStatusInOrderBySequenceNoAsc(
+                drawdown.getId(), List.of(InstalmentStatus.UNPAID, InstalmentStatus.OVERDUE))
                 .orElseThrow(() -> new AppException(ErrorCode.DRAWDOWN_NOT_ACTIVE));
         if (!earliest.getId().equals(instalmentId)) {
             throw new AppException(ErrorCode.INSTALMENT_OUT_OF_ORDER);
@@ -121,7 +121,7 @@ public class RepaymentService {
         }
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (outcome == PaymentAttemptStatus.SUCCEEDED) {
-            if (instalment.getStatus() != InstalmentStatus.UNPAID || drawdown.getStatus() != DrawdownStatus.ACTIVE) {
+            if (instalment.getStatus() == InstalmentStatus.PAID || drawdown.getStatus() != DrawdownStatus.ACTIVE) {
                 throw new AppException(ErrorCode.PAYMENT_ALREADY_RESOLVED);
             }
             instalment.applyPayment(attempt.getAmount(), now);
