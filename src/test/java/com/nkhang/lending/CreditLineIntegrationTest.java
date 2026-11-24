@@ -9,6 +9,7 @@ import com.nkhang.lending.credit.CreditService;
 import com.nkhang.lending.drawdown.CreditDrawdownService;
 import com.nkhang.lending.drawdown.dto.DrawdownDetailResponse;
 import com.nkhang.lending.drawdown.dto.DrawdownRequest;
+import com.nkhang.lending.instalment.OverdueService;
 import com.nkhang.lending.repayment.PaymentAttemptStatus;
 import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.RepaymentService;
@@ -20,6 +21,9 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
+import java.sql.Date;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -36,6 +40,7 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
     @Autowired CreditService creditService;
     @Autowired CreditDrawdownService drawdownService;
     @Autowired RepaymentService repaymentService;
+    @Autowired OverdueService overdueService;
 
     @Test
     void rejectedApplicationCanBeReassessedButApprovedAccountCannotBeDuplicated() {
@@ -164,6 +169,28 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
         assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("300.00");
         assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("PAID");
         assertThat(repaymentService.history(drawdown.drawdownId())).hasSize(2);
+    }
+
+    @Test
+    void overdueJobAndPartialPaymentPreserveOutstandingDaysUntilFullyPaid() {
+        approve();
+        DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("400.00")), "draw-overdue");
+        UUID firstId = drawdown.instalments().getFirst().id();
+        jdbcTemplate.update("update instalments set due_date = ? where id = ?",
+                Date.valueOf(LocalDate.now(ZoneOffset.UTC).minusDays(3)), firstId);
+        assertThat(overdueService.markOverdue()).isEqualTo(1);
+        assertThat(overdueService.markOverdue()).isZero();
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("OVERDUE");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().daysOverdue()).isGreaterThanOrEqualTo(3);
+        PaymentAttemptResponse partial = repaymentService.request(firstId, "late-partial", money("40.00"));
+        repaymentService.settle(partial.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-late-partial");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("OVERDUE");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().remainingAmount())
+                .isEqualByComparingTo("60.00");
+        PaymentAttemptResponse remainder = repaymentService.request(firstId, "late-remainder");
+        repaymentService.settle(remainder.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-late-remainder");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().status()).isEqualTo("PAID");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).instalments().getFirst().daysOverdue()).isZero();
     }
 
     @Test

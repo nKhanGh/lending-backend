@@ -68,6 +68,11 @@ instalment. Omit the body to request its full remaining balance. Partial
 payments reduce principal immediately after settlement; the instalment stays
 open until fully paid.
 
+At 00:05 UTC each day, the overdue job marks unpaid instalments past their
+due date as `OVERDUE`. Drawdown detail also reports `daysOverdue` and
+the remaining amount, including after a partial payment. A fully settled
+instalment changes to `PAID`.
+
 ## API
 
 | Method | Path | Purpose |
