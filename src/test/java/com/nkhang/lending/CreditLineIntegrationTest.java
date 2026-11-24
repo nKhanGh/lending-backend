@@ -9,7 +9,8 @@ import com.nkhang.lending.credit.CreditService;
 import com.nkhang.lending.drawdown.CreditDrawdownService;
 import com.nkhang.lending.drawdown.dto.DrawdownDetailResponse;
 import com.nkhang.lending.drawdown.dto.DrawdownRequest;
-import com.nkhang.lending.repayment.dto.RepaymentResponse;
+import com.nkhang.lending.repayment.PaymentAttemptStatus;
+import com.nkhang.lending.repayment.dto.PaymentAttemptResponse;
 import com.nkhang.lending.repayment.RepaymentService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -71,17 +72,29 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_KEY_REUSED));
 
         UUID firstId = drawdown.instalments().getFirst().id();
-        RepaymentResponse first = repaymentService.repay(firstId, "repay-first");
-        RepaymentResponse firstRetry = repaymentService.repay(firstId, "repay-first");
-        assertThat(firstRetry).isEqualTo(first);
-        assertThatThrownBy(() -> repaymentService.repay(firstId, "repay-first-new-key"))
+        PaymentAttemptResponse first = repaymentService.request(firstId, "repay-first");
+        assertThat(first.status()).isEqualTo("PENDING");
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("800.00");
+        assertThat(repaymentService.request(firstId, "repay-first")).isEqualTo(first);
+        assertThatThrownBy(() -> repaymentService.request(firstId, "repay-first-new-key"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_ALREADY_PENDING));
+        repaymentService.settle(first.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-first");
+        assertThat(repaymentService.request(firstId, "repay-first").status()).isEqualTo("SUCCEEDED");
+        assertThat(repaymentService.settle(first.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-first").status())
+                .isEqualTo("SUCCEEDED");
+        assertThatThrownBy(() -> repaymentService.settle(first.paymentAttemptId(), PaymentAttemptStatus.FAILED, "evt-other"))
+                .isInstanceOfSatisfying(AppException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.PAYMENT_ALREADY_RESOLVED));
+        assertThatThrownBy(() -> repaymentService.request(firstId, "repay-first-new-key"))
                 .isInstanceOfSatisfying(AppException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INSTALMENT_ALREADY_PAID));
-        assertThat(first.remainingDrawdownPrincipal()).isEqualByComparingTo("600.00");
-        assertThat(first.availableLimit()).isEqualByComparingTo("400.00");
+        assertThat(drawdownService.detail(drawdown.drawdownId()).outstandingPrincipal()).isEqualByComparingTo("600.00");
+        assertThat(creditService.getAccount().availableLimit()).isEqualByComparingTo("400.00");
 
         for (int index = 1; index < 4; index++) {
-            repaymentService.repay(drawdown.instalments().get(index).id(), "repay-" + index);
+            PaymentAttemptResponse attempt = repaymentService.request(drawdown.instalments().get(index).id(), "repay-" + index);
+            repaymentService.settle(attempt.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-" + index);
         }
         assertThat(drawdownService.detail(drawdown.drawdownId()).status()).isEqualTo("PAID_OFF");
         assertThat(drawdownService.detail(drawdown.drawdownId()).outstandingPrincipal()).isEqualByComparingTo("0.00");
@@ -103,11 +116,27 @@ class CreditLineIntegrationTest extends PostgresIntegrationTest {
         DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("100.01")), "rounding");
         assertThat(drawdown.instalments()).extracting(item -> item.amount())
                 .containsExactly(money("25.00"), money("25.00"), money("25.00"), money("25.01"));
-        assertThatThrownBy(() -> repaymentService.repay(drawdown.instalments().get(1).id(), "wrong-order"))
+        assertThatThrownBy(() -> repaymentService.request(drawdown.instalments().get(1).id(), "wrong-order"))
                 .isInstanceOfSatisfying(AppException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INSTALMENT_OUT_OF_ORDER));
         assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("100.01");
         assertThat(repaymentService.history(drawdown.drawdownId())).isEmpty();
+    }
+
+    @Test
+    void failedPaymentDoesNotRestoreLimitAndCanBeRetried() {
+        approve();
+        DrawdownDetailResponse drawdown = drawdownService.create(new DrawdownRequest(money("400.00")), "draw-failed");
+        UUID instalmentId = drawdown.instalments().getFirst().id();
+        PaymentAttemptResponse first = repaymentService.request(instalmentId, "attempt-one");
+        repaymentService.settle(first.paymentAttemptId(), PaymentAttemptStatus.FAILED, "evt-failed");
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("400.00");
+        assertThat(repaymentService.history(drawdown.drawdownId())).isEmpty();
+        PaymentAttemptResponse retry = repaymentService.request(instalmentId, "attempt-two");
+        assertThat(retry.paymentAttemptId()).isNotEqualTo(first.paymentAttemptId());
+        repaymentService.settle(retry.paymentAttemptId(), PaymentAttemptStatus.SUCCEEDED, "evt-succeeded");
+        assertThat(creditService.getAccount().usedLimit()).isEqualByComparingTo("300.00");
+        assertThat(repaymentService.history(drawdown.drawdownId())).hasSize(1);
     }
 
     @Test

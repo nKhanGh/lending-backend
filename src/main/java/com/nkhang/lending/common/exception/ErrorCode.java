@@ -19,6 +19,8 @@ public enum ErrorCode {
     INSTALMENT_OUT_OF_ORDER(40905, "Pay the earliest unpaid instalment first", HttpStatus.CONFLICT),
     IDEMPOTENCY_KEY_REUSED(40906, "Idempotency key used for a different request", HttpStatus.CONFLICT),
     REQUEST_IN_PROGRESS(40907, "Request is in progress", HttpStatus.CONFLICT),
+    PAYMENT_ALREADY_PENDING(40908, "Payment is pending for this instalment", HttpStatus.CONFLICT),
+    PAYMENT_ALREADY_RESOLVED(40909, "Payment attempt already resolved", HttpStatus.CONFLICT),
     INTERNAL_SERVER_ERROR(50000, "Unexpected server error", HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final int code;

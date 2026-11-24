@@ -29,6 +29,7 @@ public abstract class PostgresIntegrationTest {
 
     @BeforeEach
     void resetData() {
+        jdbcTemplate.execute("delete from payment_attempts");
         jdbcTemplate.execute("delete from repayment_transactions");
         jdbcTemplate.execute("delete from instalments");
         jdbcTemplate.execute("delete from credit_drawdowns");
