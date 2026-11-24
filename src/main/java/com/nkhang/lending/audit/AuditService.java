@@ -6,6 +6,7 @@ import com.nkhang.lending.common.exception.ErrorCode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -18,6 +19,7 @@ public class AuditService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void record(UUID actorId, UUID subjectUserId, String action,
                        String resourceType, UUID resourceId, String details) {
         jdbc.update("""
