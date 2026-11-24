@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -60,11 +61,22 @@ class CreditLineApiIntegrationTest extends PostgresIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(retryJson).get("result")).isEqualTo(drawdown);
 
-        mockMvc.perform(post("/api/instalments/{id}/repay", firstInstalmentId)
+        String attemptJson = mockMvc.perform(post("/api/instalments/{id}/repay", firstInstalmentId)
                         .header("Idempotency-Key", "api-repay-first"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.result.status").value("PENDING"))
+                .andReturn().getResponse().getContentAsString();
+        String attemptId = objectMapper.readTree(attemptJson).get("result").get("paymentAttemptId").asText();
+        mockMvc.perform(post("/api/admin/payment-attempts/{id}/settle", attemptId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"outcome\":\"SUCCEEDED\",\"providerEventId\":\"api-event-one\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/payment-attempts/{id}/settle", attemptId)
+                        .with(user("00000000-0000-0000-0000-000000000001").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"outcome\":\"SUCCEEDED\",\"providerEventId\":\"api-event-one\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.remainingDrawdownPrincipal").value(600.00))
-                .andExpect(jsonPath("$.result.availableLimit").value(400.00));
+                .andExpect(jsonPath("$.result.status").value("SUCCEEDED"));
         mockMvc.perform(get("/api/credit-drawdowns/{id}/repayments", drawdownId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result", hasSize(1)));

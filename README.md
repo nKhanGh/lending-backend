@@ -1,72 +1,95 @@
 # Mini Lending Credit Line Backend
 
-Java 21 / Spring Boot 3.5 / PostgreSQL simulator for credit assessment, limit utilization and principal repayment. This is a learning project: there are no real loans, disbursements or payments.
+Java 21, Spring Boot 3.5 and PostgreSQL simulator for credit assessment,
+limit utilization and repayment. No real loans, disbursements or payments.
 
 ## Run locally
 
-V2 backend endpoints require a bearer token. Set a stable \`JWT_SECRET\` of at least 32 bytes
-outside the repository for tokens to survive restarts. Without it, a random local-only key
-is generated at startup. To create an administrator, set \`BOOTSTRAP_ADMIN_EMAIL\` and
-\`BOOTSTRAP_ADMIN_PASSWORD\` (12+ characters) before the first start; neither is seeded by default.
-The original seeded demo user has no login credential. Register a new customer to use V2.
-
-\`\`\`powershell
-$register = Invoke-RestMethod http://localhost:8080/api/auth/register -Method Post -ContentType 'application/json' -Body '{"displayName":"Demo","email":"demo@example.test","password":"password123"}'
-$token = $register.result.accessToken
-$headers = @{Authorization = "Bearer $token"}
-Invoke-RestMethod http://localhost:8080/api/auth/me -Headers $headers
-\`\`\`
-
-Add \`$headers\` to the credit-line API requests below. Customer routes are scoped to the
-token's user ID; \`GET /api/admin/users\` requires the ADMIN role. The existing frontend
-branch has no login flow yet and will need a separate update to call this V2 backend.
-
 Requirements: Java 21, Maven 3.9+, Docker Desktop.
 
-```bash
+```powershell
 docker compose up -d postgres
 mvn spring-boot:run
 ```
 
-PostgreSQL is exposed on host port `55433`. The new Compose database and volume are separate from the previous PayLater database. Environment overrides are listed in `.env.example`. Swagger UI: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html); health: [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health).
+PostgreSQL is exposed on port `55433`. Flyway applies V1 through V4 on startup
+and Hibernate validates the schema. Existing migrations must not be edited.
 
-## Demo (PowerShell)
+Set `JWT_SECRET` to a random value of at least 32 bytes outside the repository
+if tokens should survive restarts. Without it, a random local-only key is
+generated at startup. Optionally set `BOOTSTRAP_ADMIN_EMAIL` and
+`BOOTSTRAP_ADMIN_PASSWORD` (12+ characters) to create an admin at first start.
+No admin credentials are committed to the repository.
+
+## Accounts and roles
 
 ```powershell
 $base = 'http://localhost:8080/api'
-$application = Invoke-RestMethod "$base/credit-applications" -Method Post -ContentType 'application/json' -Body '{"monthlyNetIncome":3000.00,"monthlyLivingExpenses":1400.00,"monthlyDebtPayments":500.00}'
-$account = Invoke-RestMethod "$base/credit-account"
-$drawdown = Invoke-RestMethod "$base/credit-drawdowns" -Method Post -ContentType 'application/json' -Headers @{'Idempotency-Key'='demo-draw-800'} -Body '{"amount":800.00}'
-$id = $drawdown.result.drawdownId
-$firstInstalment = $drawdown.result.instalments[0].id
-$repayment = Invoke-RestMethod "$base/instalments/$firstInstalment/repay" -Method Post -Headers @{'Idempotency-Key'='demo-repay-1'}
-Invoke-RestMethod "$base/credit-drawdowns/$id"
-Invoke-RestMethod "$base/credit-drawdowns/$id/repayments"
+$register = Invoke-RestMethod "$base/auth/register" -Method Post -ContentType 'application/json' -Body '{"displayName":"Demo","email":"demo@example.test","password":"password123"}'
+$token = $register.result.accessToken
+$headers = @{ Authorization = "Bearer $token" }
+Invoke-RestMethod "$base/auth/me" -Headers $headers
 ```
 
-The demo decision is `APPROVED_TIER_1000`: surplus SGD 1100 and limit SGD 1000. A drawdown of SGD 800 produces four SGD 200 instalments; after the first repayment, used limit is SGD 600 and available limit is SGD 400. Pay the remaining instalments in sequence to reach `PAID_OFF` and restore SGD 1000 available. A successful application is accepted once per seeded user. To repeat the demo from the beginning, use a new empty database/volume; do not alter an existing Flyway migration or erase data you want to keep.
+`POST /api/auth/login` issues another one-hour bearer token. Customer routes
+are scoped to the token user. `/api/admin/**` requires the ADMIN role. The
+original seeded demo user is retained for migration compatibility but has no
+login credential. Register a new user to use V2.
+
+The existing frontend branch has no login flow and is not yet compatible with
+this backend branch.
+
+## Demo credit flow
+
+```powershell
+$application = Invoke-RestMethod "$base/credit-applications" -Method Post -ContentType 'application/json' -Headers $headers -Body '{"monthlyNetIncome":3000.00,"monthlyLivingExpenses":1400.00,"monthlyDebtPayments":500.00}'
+$drawHeaders = @{ Authorization = "Bearer $token"; 'Idempotency-Key' = 'demo-draw-800' }
+$drawdown = Invoke-RestMethod "$base/credit-drawdowns" -Method Post -ContentType 'application/json' -Headers $drawHeaders -Body '{"amount":800.00}'
+$instalmentId = $drawdown.result.instalments[0].id
+$payHeaders = @{ Authorization = "Bearer $token"; 'Idempotency-Key' = 'demo-payment-1' }
+$attempt = Invoke-RestMethod "$base/instalments/$instalmentId/repay" -Method Post -Headers $payHeaders
+```
+
+The payment attempt returns HTTP 202 and `PENDING`. It does not change the
+balance. To simulate an external payment result, log in as the configured admin:
+
+```powershell
+$adminLogin = Invoke-RestMethod "$base/auth/login" -Method Post -ContentType 'application/json' -Body '{"email":"admin@example.test","password":"your-admin-password"}'
+$adminHeaders = @{ Authorization = "Bearer $($adminLogin.result.accessToken)" }
+$attemptId = $attempt.result.paymentAttemptId
+Invoke-RestMethod "$base/admin/payment-attempts/$attemptId/settle" -Method Post -Headers $adminHeaders -ContentType 'application/json' -Body '{"outcome":"SUCCEEDED","providerEventId":"demo-event-1"}'
+```
+
+Only `SUCCEEDED` marks the instalment paid, reduces principal and restores
+available credit. `FAILED` leaves balances untouched and permits a new
+attempt. Replaying the same idempotency key or provider event is safe.
 
 ## API
 
-| Method | Path | Notes |
+| Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/credit-applications` | Income, living expenses, debt payments; optional `currency=SGD` |
-| GET | `/api/credit-applications/latest` | Most recent decision |
-| GET | `/api/credit-account` | Total, used and available limit after approval |
-| POST | `/api/credit-drawdowns` | `{ "amount": 800.00 }`; requires `Idempotency-Key` |
-| GET | `/api/credit-drawdowns` | Drawdown list |
-| GET | `/api/credit-drawdowns/{id}` | Detail and four instalments |
-| POST | `/api/instalments/{id}/repay` | Next unpaid instalment only; requires `Idempotency-Key` |
-| GET | `/api/credit-drawdowns/{id}/repayments` | Successful repayment history |
+| POST | `/api/auth/register`, `/api/auth/login` | Customer signup and login |
+| GET | `/api/auth/me` | Current user |
+| POST | `/api/credit-applications` | Assess income and assign limit |
+| GET | `/api/credit-applications/latest`, `/api/credit-account` | Current decision and balance |
+| POST | `/api/credit-drawdowns` | Use limit; requires Idempotency-Key |
+| GET | `/api/credit-drawdowns`, `/api/credit-drawdowns/{id}` | Drawdowns and instalments |
+| POST | `/api/instalments/{id}/repay` | Create PENDING payment attempt |
+| GET | `/api/payment-attempts/{id}` | Own payment status |
+| GET | `/api/credit-drawdowns/{id}/payment-attempts` | Own attempt history |
+| GET | `/api/credit-drawdowns/{id}/repayments` | Successful repayments |
+| POST | `/api/admin/payment-attempts/{id}/settle` | Simulate provider outcome |
+| GET | `/api/admin/users` | Admin-only user listing |
 
-All results are wrapped in the existing `ApiResponse<T>` shape (`code`, `message`, `result`, `timestamp`). For one operation, retry with the same key and body to get the original result. Use a new key for a new operation.
+All responses use `ApiResponse<T>`. Swagger UI is at
+[http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html).
+The health endpoint is at [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health).
 
-The smallest accepted drawdown is SGD 0.04 because the schema requires four positive instalments in cents. Monthly dates use UTC. The `DEMO_V1` policy and data model are detailed in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-
-## Tests and Flyway
+## Verify
 
 ```bash
 mvn clean verify
 ```
 
-Integration tests start an ephemeral PostgreSQL 17 instance through Testcontainers. Flyway runs `V1` (tables/constraints) and `V2` (demo user) at startup, then records checksums in `flyway_schema_history`. Hibernate validates the resulting schema. Future schema changes require a new numbered migration; the previous PayLater volume is intentionally kept separate.
+Integration tests run against ephemeral PostgreSQL 17 with Testcontainers.
+They cover user isolation, retry, concurrency, payment success and failure.
