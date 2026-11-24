@@ -2,6 +2,7 @@ package com.nkhang.lending.config;
 
 import com.nkhang.lending.application.LendingUser;
 import com.nkhang.lending.application.LendingUserRepository;
+import com.nkhang.lending.application.UserRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -29,8 +30,10 @@ public class AdminBootstrap implements ApplicationRunner {
             throw new IllegalStateException("Set BOOTSTRAP_ADMIN_EMAIL and a password of at least 12 characters");
         }
         String normalized = email.trim().toLowerCase(Locale.ROOT);
-        if (users.findByEmailIgnoreCase(normalized).isEmpty()) {
-            users.save(LendingUser.admin("Administrator", normalized, passwordEncoder.encode(password)));
-        }
+        users.findByEmailIgnoreCase(normalized).ifPresentOrElse(existing -> {
+            if (existing.getRole() != UserRole.ADMIN) {
+                throw new IllegalStateException("BOOTSTRAP_ADMIN_EMAIL belongs to a customer");
+            }
+        }, () -> users.save(LendingUser.admin("Administrator", normalized, passwordEncoder.encode(password))));
     }
 }

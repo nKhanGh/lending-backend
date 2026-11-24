@@ -12,7 +12,7 @@ docker compose up -d postgres
 mvn spring-boot:run
 ```
 
-PostgreSQL is exposed on port `55433`. Flyway applies V1 through V4 on startup
+PostgreSQL is exposed on port `55433`. Flyway applies V1 through V9 on startup
 and Hibernate validates the schema. Existing migrations must not be edited.
 
 Set `JWT_SECRET` to a random value of at least 32 bytes outside the repository

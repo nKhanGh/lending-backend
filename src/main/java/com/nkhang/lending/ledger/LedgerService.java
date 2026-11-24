@@ -3,6 +3,8 @@ package com.nkhang.lending.ledger;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -15,12 +17,14 @@ public class LedgerService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void drawdown(UUID userId, UUID drawdownId, BigDecimal amount) {
         UUID journalId = journal(userId, "DRAWDOWN", drawdownId);
         entry(journalId, "CUSTOMER_RECEIVABLE", "DEBIT", amount);
         entry(journalId, "SIMULATED_FUNDING", "CREDIT", amount);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void repayment(UUID userId, UUID repaymentId, BigDecimal amount) {
         UUID journalId = journal(userId, "REPAYMENT", repaymentId);
         entry(journalId, "SIMULATED_CASH", "DEBIT", amount);
